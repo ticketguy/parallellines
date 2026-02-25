@@ -52,14 +52,26 @@ _SUMMARISE_EVERY_N_TURNS = 10
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
+_STOP_WORDS = {
+    "What", "The", "Is", "Are", "How", "Who", "When", "Where", "Why",
+    "Give", "Tell", "Show", "Get", "Let", "Has", "Have", "Does",
+    "Can", "Will", "Should", "Would", "Could", "Do", "I", "My", "Me",
+    "A", "An", "And", "Or", "But", "In", "On", "At", "To", "Of",
+    "For", "With", "From", "About", "By", "This", "That",
+}
+
+
 def _extract_topics(text: str) -> list[str]:
     """
     Lightweight topic extraction: return capitalised noun phrases and
     any quoted terms from the user's message as topic candidates.
     """
     quoted = re.findall(r'"([^"]+)"', text)
-    # Simple heuristic: title-cased runs of words (proper nouns)
-    titled = re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b", text)
+    # Title-cased runs of words (proper nouns), excluding common question words
+    titled = [
+        t for t in re.findall(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b", text)
+        if t not in _STOP_WORDS and len(t) > 2
+    ]
     topics = list(dict.fromkeys(quoted + titled))  # deduplicate, preserve order
     return topics[:8]
 

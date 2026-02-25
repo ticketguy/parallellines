@@ -206,12 +206,24 @@ async def run_intuone(
     full_context = "\n\n".join(parts)
 
     # 6. Generate English briefing
+    #    Priority: fine-tuned local model → teacher Claude → rule-based engine
+    #    The rule-based engine always works — no GPU, no API key, no internet.
+    from app.inference.rule_based import generate as rule_based_generate
+
     if not force_teacher and is_model_loaded():
         briefing = generate_briefing_local(full_context)
         model_used = "local"
+    elif settings.ANTHROPIC_API_KEY and not force_teacher is False:
+        # teacher fallback only if API key is set
+        try:
+            briefing = await generate_briefing_teacher(full_context)
+            model_used = "teacher_claude"
+        except Exception:
+            briefing = rule_based_generate(topic, layer_scores, signals, user_message, time_window)
+            model_used = "rule_based"
     else:
-        briefing = await generate_briefing_teacher(full_context)
-        model_used = "teacher_claude"
+        briefing = rule_based_generate(topic, layer_scores, signals, user_message, time_window)
+        model_used = "rule_based"
 
     return {
         "topic": topic,

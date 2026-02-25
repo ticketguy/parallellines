@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IntuOne — Dashboard</title>
+  <link rel="stylesheet" href="/app/css/main.css" />
+</head>
+<body class="dark">
+
+<div id="dash-app">
+  <!-- ── Top nav ── -->
+  <header id="dash-header">
+    <div class="logo">
+      <span class="logo-icon">⬡</span>
+      <span class="logo-text">IntuOne</span>
+      <span class="logo-sub">Dashboard</span>
+    </div>
+    <nav class="dash-nav">
+      <span id="last-ingest" class="dim">Loading…</span>
+      <button class="btn-sm" onclick="triggerIngest()">↻ Ingest Now</button>
+      <a href="/app/chat.html" class="btn-sm">💬 Chat</a>
+    </nav>
+  </header>
+
+  <!-- ── Layer score cards ── -->
+  <section id="layer-cards">
+    <div class="card" id="card-market">
+      <div class="card-label">Market</div>
+      <div class="card-score" id="score-market">—</div>
+      <div class="card-conf" id="conf-market"></div>
+      <div class="card-bar"><div class="bar-fill" id="bar-market"></div></div>
+    </div>
+    <div class="card" id="card-social">
+      <div class="card-label">Social</div>
+      <div class="card-score" id="score-social">—</div>
+      <div class="card-conf" id="conf-social"></div>
+      <div class="card-bar"><div class="bar-fill" id="bar-social"></div></div>
+    </div>
+    <div class="card" id="card-news">
+      <div class="card-label">News</div>
+      <div class="card-score" id="score-news">—</div>
+      <div class="card-conf" id="conf-news"></div>
+      <div class="card-bar"><div class="bar-fill" id="bar-news"></div></div>
+    </div>
+    <div class="card" id="card-sentiment">
+      <div class="card-label">Sentiment</div>
+      <div class="card-score" id="score-sentiment">—</div>
+      <div class="card-conf" id="conf-sentiment"></div>
+      <div class="card-bar"><div class="bar-fill" id="bar-sentiment"></div></div>
+    </div>
+    <div class="card" id="card-geopolitical">
+      <div class="card-label">Geo</div>
+      <div class="card-score" id="score-geopolitical">—</div>
+      <div class="card-conf" id="conf-geopolitical"></div>
+      <div class="card-bar"><div class="bar-fill" id="bar-geopolitical"></div></div>
+    </div>
+  </section>
+
+  <!-- ── Main grid ── -->
+  <div id="dash-grid">
+
+    <!-- Live signals feed -->
+    <section class="panel" id="signals-panel">
+      <div class="panel-header">
+        <h3>Live Signals</h3>
+        <div class="panel-controls">
+          <select id="layer-filter" onchange="filterSignals()">
+            <option value="">All layers</option>
+            <option value="market">Market</option>
+            <option value="social">Social</option>
+            <option value="news">News</option>
+            <option value="sentiment">Sentiment</option>
+            <option value="geopolitical">Geopolitical</option>
+          </select>
+        </div>
+      </div>
+      <div id="signals-list" class="feed-list">
+        <div class="loading">Loading signals…</div>
+      </div>
+    </section>
+
+    <!-- Right column -->
+    <div id="right-col">
+
+      <!-- Training status -->
+      <section class="panel" id="training-panel">
+        <div class="panel-header"><h3>Training Status</h3></div>
+        <div id="training-stats" class="stat-grid">
+          <div class="stat"><div class="stat-val" id="stat-train">—</div><div class="stat-label">Train</div></div>
+          <div class="stat"><div class="stat-val" id="stat-val">—</div><div class="stat-label">Val</div></div>
+          <div class="stat"><div class="stat-val" id="stat-test">—</div><div class="stat-label">Test</div></div>
+          <div class="stat"><div class="stat-val" id="stat-signals">—</div><div class="stat-label">Signals</div></div>
+        </div>
+        <div id="model-status" class="model-status dim">Model: not loaded (rule-based active)</div>
+      </section>
+
+      <!-- Long-term memory -->
+      <section class="panel" id="memory-panel">
+        <div class="panel-header">
+          <h3>Long-term Memory</h3>
+          <span id="memory-count" class="badge">0</span>
+        </div>
+        <div id="memory-list" class="feed-list">
+          <div class="loading">Loading memories…</div>
+        </div>
+      </section>
+
+      <!-- Connectors -->
+      <section class="panel" id="connectors-panel">
+        <div class="panel-header">
+          <h3>Data Sources</h3>
+          <button class="btn-sm" onclick="showAddSource()">+ Add</button>
+        </div>
+        <div id="connectors-list"></div>
+        <div id="crawl-sources-list"></div>
+
+        <!-- Add source form (hidden by default) -->
+        <div id="add-source-form" class="hidden">
+          <input id="src-label" placeholder="Label (e.g. Hacker News)" class="input-sm" />
+          <input id="src-url" placeholder="URL to crawl" class="input-sm" />
+          <select id="src-layer" class="input-sm">
+            <option value="news">News</option>
+            <option value="social">Social</option>
+            <option value="sentiment">Sentiment</option>
+          </select>
+          <input id="src-tags" placeholder="topic tags, comma separated" class="input-sm" />
+          <div class="form-row">
+            <button class="btn-sm btn-primary" onclick="addCrawlSource()">Add</button>
+            <button class="btn-sm" onclick="hideAddSource()">Cancel</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/v1';
+let allSignals = [];
+
+// ── Layer cards ───────────────────────────────────────────────────────────────
+const LAYERS = ['market', 'social', 'news', 'sentiment', 'geopolitical'];
+
+function updateLayerCard(layer, score, conf, count) {
+  const pct = Math.round(conf * 100);
+  const scoreEl = document.getElementById(`score-${layer}`);
+  const confEl = document.getElementById(`conf-${layer}`);
+  const barEl = document.getElementById(`bar-${layer}`);
+  const cardEl = document.getElementById(`card-${layer}`);
+
+  if (scoreEl) {
+    const arrow = score > 0.05 ? '▲' : score < -0.05 ? '▼' : '→';
+    scoreEl.textContent = `${score >= 0 ? '+' : ''}${score.toFixed(2)} ${arrow}`;
+    scoreEl.className = 'card-score ' + (score > 0.05 ? 'pos' : score < -0.05 ? 'neg' : 'neu');
+  }
+  if (confEl) confEl.textContent = `${pct}% conf · ${count} sig`;
+  if (barEl) {
+    const fill = Math.abs(score) * 100;
+    barEl.style.width = fill + '%';
+    barEl.style.background = score > 0.05 ? 'var(--green)' : score < -0.05 ? 'var(--red)' : 'var(--muted)';
+  }
+}
+
+// ── Signals ───────────────────────────────────────────────────────────────────
+async function loadSignals() {
+  try {
+    const res = await fetch(`${API}/signals/?limit=200`);
+    allSignals = await res.json();
+    renderSignals(allSignals);
+
+    // Derive layer scores from signals as proxy (real scores come from reports)
+    const byLayer = {};
+    allSignals.forEach(s => {
+      if (!byLayer[s.layer]) byLayer[s.layer] = { scores: [], confs: [], count: 0 };
+      byLayer[s.layer].scores.push(s.signal_strength || 0);
+      byLayer[s.layer].count++;
+    });
+
+    LAYERS.forEach(layer => {
+      const d = byLayer[layer];
+      if (d && d.count > 0) {
+        const avg = d.scores.reduce((a, b) => a + b, 0) / d.scores.length;
+        updateLayerCard(layer, avg * 2 - 1, Math.min(avg * 1.5, 1), d.count);
+      }
+    });
+  } catch(e) { console.error('signals error', e); }
+}
+
+function renderSignals(signals) {
+  const list = document.getElementById('signals-list');
+  if (!signals.length) { list.innerHTML = '<div class="empty">No signals yet — trigger an ingest to pull live data.</div>'; return; }
+  list.innerHTML = signals.slice(0, 50).map(s => {
+    const pd = s.processed_data || {};
+    const text = pd.question || pd.text || pd.headline || pd.summary || s.source;
+    const strength = s.signal_strength != null ? `<span class="sig-strength">${(s.signal_strength * 100).toFixed(0)}%</span>` : '';
+    const tags = (s.topic_tags || []).slice(0, 3).map(t => `<span class="tag">${t}</span>`).join('');
+    return `<div class="feed-item">
+      <div class="feed-item-meta"><span class="layer-badge ${s.layer}">${s.layer}</span>${strength}</div>
+      <div class="feed-item-text">${escHtml(text.slice(0, 120))}</div>
+      <div class="feed-item-tags">${tags}</div>
+    </div>`;
+  }).join('');
+}
+
+function filterSignals() {
+  const layer = document.getElementById('layer-filter').value;
+  const filtered = layer ? allSignals.filter(s => s.layer === layer) : allSignals;
+  renderSignals(filtered);
+}
+
+// ── Training stats ────────────────────────────────────────────────────────────
+async function loadTrainingStats() {
+  try {
+    const res = await fetch(`${API}/training/status`);
+    const data = await res.json();
+    document.getElementById('stat-train').textContent = data.training_examples?.train ?? '—';
+    document.getElementById('stat-val').textContent = data.training_examples?.val ?? '—';
+    document.getElementById('stat-test').textContent = data.training_examples?.test ?? '—';
+    document.getElementById('stat-signals').textContent = data.total_signals ?? '—';
+    const modelEl = document.getElementById('model-status');
+    modelEl.textContent = data.local_model_loaded
+      ? '✓ Fine-tuned model loaded'
+      : 'Model: not loaded (rule-based active)';
+    modelEl.className = 'model-status ' + (data.local_model_loaded ? 'green' : 'dim');
+  } catch(e) {}
+}
+
+// ── Memory ────────────────────────────────────────────────────────────────────
+async function loadMemory() {
+  try {
+    const res = await fetch(`${API}/chat/memory?limit=20`);
+    const memories = await res.json();
+    document.getElementById('memory-count').textContent = memories.length;
+    const list = document.getElementById('memory-list');
+    if (!memories.length) { list.innerHTML = '<div class="empty">No memories yet — start chatting to build long-term memory.</div>'; return; }
+    list.innerHTML = memories.map(m => `
+      <div class="feed-item memory-item">
+        <div class="feed-item-meta">
+          <span class="layer-badge ${m.memory_type.replace('_','-')}">${m.memory_type}</span>
+          ${m.topic ? `<span class="tag">${escHtml(m.topic)}</span>` : ''}
+          <span class="dim">${(m.importance * 100).toFixed(0)}% imp</span>
+        </div>
+        <div class="feed-item-text">${escHtml(m.content)}</div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+// ── Connectors / sources ──────────────────────────────────────────────────────
+async function loadConnectors() {
+  try {
+    const res = await fetch(`${API}/ingest/status`);
+    const data = await res.json();
+    const stats = data.stats;
+    const lastRun = stats.last_run_at
+      ? `Last run: ${new Date(stats.last_run_at).toLocaleTimeString()} · ${stats.total_ingested} ingested`
+      : 'Not yet run';
+    document.getElementById('last-ingest').textContent = lastRun;
+
+    document.getElementById('connectors-list').innerHTML =
+      '<div class="sub-label">Built-in connectors</div>' +
+      data.connectors.map(c => `
+        <div class="connector-item">
+          <span class="dot ${c.enabled ? 'green' : 'dim'}">●</span>
+          <span>${c.name}</span>
+          <span class="layer-badge ${c.layer}">${c.layer}</span>
+        </div>`).join('');
+  } catch(e) {}
+}
+
+async function loadCrawlSources() {
+  try {
+    const res = await fetch(`${API}/ingest/sources`);
+    const sources = await res.json();
+    const el = document.getElementById('crawl-sources-list');
+    if (!sources.length) { el.innerHTML = '<div class="empty dim">No custom sources yet.</div>'; return; }
+    el.innerHTML = '<div class="sub-label">Custom crawl sources</div>' +
+      sources.filter(s => s.is_active).map(s => `
+        <div class="connector-item">
+          <span class="dot green">●</span>
+          <span>${escHtml(s.label)}</span>
+          <span class="layer-badge ${s.layer}">${s.layer}</span>
+          <button class="btn-xs danger" onclick="removeSource('${s.id}')">✕</button>
+        </div>`).join('');
+  } catch(e) {}
+}
+
+function showAddSource() { document.getElementById('add-source-form').classList.remove('hidden'); }
+function hideAddSource() { document.getElementById('add-source-form').classList.add('hidden'); }
+
+async function addCrawlSource() {
+  const label = document.getElementById('src-label').value.trim();
+  const url = document.getElementById('src-url').value.trim();
+  const layer = document.getElementById('src-layer').value;
+  const tags = document.getElementById('src-tags').value.split(',').map(t => t.trim()).filter(Boolean);
+  if (!label || !url) return alert('Label and URL are required.');
+  await fetch(`${API}/ingest/sources`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label, url, layer, topic_tags: tags }),
+  });
+  hideAddSource();
+  loadCrawlSources();
+}
+
+async function removeSource(id) {
+  await fetch(`${API}/ingest/sources/${id}`, { method: 'DELETE' });
+  loadCrawlSources();
+}
+
+async function triggerIngest() {
+  const btn = event.target;
+  btn.textContent = '↻ Running…';
+  btn.disabled = true;
+  try {
+    const res = await fetch(`${API}/ingest/run`, { method: 'POST' });
+    const d = await res.json();
+    document.getElementById('last-ingest').textContent =
+      `Ingested ${d.ingested} · skipped ${d.skipped} · errors ${d.errors}`;
+    await loadSignals();
+    await loadConnectors();
+  } catch(e) { alert('Ingest failed: ' + e); }
+  finally { btn.textContent = '↻ Ingest Now'; btn.disabled = false; }
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  await Promise.all([
+    loadSignals(),
+    loadTrainingStats(),
+    loadMemory(),
+    loadConnectors(),
+    loadCrawlSources(),
+  ]);
+}
+
+init();
+// Auto-refresh every 60 seconds
+setInterval(init, 60_000);
+</script>
+</body>
+</html>

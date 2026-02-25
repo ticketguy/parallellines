@@ -1,4 +1,5 @@
 from app.models.base import Base
+from app.models.crawl_source import CrawlSource
 from app.models.layer import LayerScore
 from app.models.market import PredictionMarket
 from app.models.memory import ConversationMessage, ConversationSession, MemoryEntry
@@ -18,4 +19,5 @@ __all__ = [
     "ConversationSession",
     "ConversationMessage",
     "MemoryEntry",
+    "CrawlSource",
 ]

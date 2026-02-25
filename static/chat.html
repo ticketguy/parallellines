@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IntuOne — Chat</title>
+  <link rel="stylesheet" href="/app/css/main.css" />
+</head>
+<body class="dark">
+
+<div id="app">
+  <!-- ── Sidebar ── -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <div class="logo">
+        <span class="logo-icon">⬡</span>
+        <span class="logo-text">IntuOne</span>
+      </div>
+      <button id="new-session-btn" class="btn-primary" onclick="newSession()">+ New</button>
+    </div>
+    <nav id="sessions-list">
+      <!-- sessions injected here -->
+    </nav>
+    <div class="sidebar-footer">
+      <a href="/app/dashboard.html" class="nav-link">📊 Dashboard</a>
+    </div>
+  </aside>
+
+  <!-- ── Main chat area ── -->
+  <main id="chat-main">
+    <header id="chat-header">
+      <span id="chat-title">New conversation</span>
+      <span id="model-badge" class="badge">rule-based</span>
+    </header>
+
+    <div id="messages-container">
+      <div id="messages">
+        <!-- Welcome state -->
+        <div id="welcome" class="welcome">
+          <div class="welcome-icon">⬡</div>
+          <h2>Ask IntuOne anything</h2>
+          <p>I analyse prediction markets, social signals, news, sentiment,<br>
+             and geopolitical data to give you a grounded read on any topic.</p>
+          <div class="example-prompts">
+            <button class="example-btn" onclick="setInput('What are the markets saying about the US election?')">US election markets</button>
+            <button class="example-btn" onclick="setInput('What is the current signal on Bitcoin price direction?')">Bitcoin signals</button>
+            <button class="example-btn" onclick="setInput('Give me a briefing on AI regulation sentiment')">AI regulation</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="input-area">
+      <div id="thinking-indicator" class="hidden">
+        <span class="dot-pulse"></span> IntuOne is thinking…
+      </div>
+      <div id="input-row">
+        <textarea
+          id="user-input"
+          placeholder="Ask about any topic — markets, geopolitics, trends…"
+          rows="1"
+          onkeydown="handleKey(event)"
+          oninput="autoResize(this)"
+        ></textarea>
+        <button id="send-btn" onclick="sendMessage()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const API = '/api/v1';
+let currentSessionId = null;
+
+// ── Session management ────────────────────────────────────────────────────────
+
+async function loadSessions() {
+  try {
+    const res = await fetch(`${API}/chat/sessions`);
+    const sessions = await res.json();
+    const list = document.getElementById('sessions-list');
+    list.innerHTML = '';
+    sessions.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'session-item' + (s.id === currentSessionId ? ' active' : '');
+      div.dataset.id = s.id;
+      div.textContent = s.title || 'Untitled';
+      div.onclick = () => loadSession(s.id);
+      list.appendChild(div);
+    });
+  } catch(e) { console.error('sessions error', e); }
+}
+
+async function loadSession(id) {
+  currentSessionId = id;
+  try {
+    const res = await fetch(`${API}/chat/sessions/${id}`);
+    const session = await res.json();
+    document.getElementById('chat-title').textContent = session.title || 'Conversation';
+    document.getElementById('welcome').style.display = 'none';
+    const container = document.getElementById('messages');
+    // clear non-welcome messages
+    [...container.querySelectorAll('.message')].forEach(el => el.remove());
+    session.messages
+      .filter(m => m.role !== 'thinking')
+      .forEach(m => appendMessage(m.role, m.content, false));
+    scrollToBottom();
+    await loadSessions();
+  } catch(e) { console.error('load session error', e); }
+}
+
+function newSession() {
+  currentSessionId = null;
+  document.getElementById('chat-title').textContent = 'New conversation';
+  document.getElementById('welcome').style.display = '';
+  [...document.getElementById('messages').querySelectorAll('.message')]
+    .forEach(el => el.remove());
+  [...document.getElementById('sessions-list').querySelectorAll('.session-item')]
+    .forEach(el => el.classList.remove('active'));
+}
+
+// ── Messaging ─────────────────────────────────────────────────────────────────
+
+async function sendMessage() {
+  const input = document.getElementById('user-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  document.getElementById('welcome').style.display = 'none';
+  appendMessage('user', text);
+  input.value = '';
+  input.style.height = '';
+
+  const btn = document.getElementById('send-btn');
+  btn.disabled = true;
+  document.getElementById('thinking-indicator').classList.remove('hidden');
+
+  try {
+    const body = { content: text };
+    if (currentSessionId) body.session_id = currentSessionId;
+
+    const res = await fetch(`${API}/chat/message`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    currentSessionId = data.session_id;
+    document.getElementById('model-badge').textContent = data.model_used || 'unknown';
+    appendMessage('assistant', data.content);
+    await loadSessions();
+  } catch(e) {
+    appendMessage('assistant', '⚠ Connection error — is the server running?');
+  } finally {
+    btn.disabled = false;
+    document.getElementById('thinking-indicator').classList.add('hidden');
+  }
+}
+
+function appendMessage(role, content, scroll = true) {
+  const container = document.getElementById('messages');
+
+  const wrap = document.createElement('div');
+  wrap.className = `message ${role}`;
+
+  const avatar = document.createElement('div');
+  avatar.className = 'avatar';
+  avatar.textContent = role === 'user' ? 'You' : '⬡';
+
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+  bubble.innerHTML = formatContent(content);
+
+  if (role === 'assistant') {
+    wrap.appendChild(avatar);
+    wrap.appendChild(bubble);
+  } else {
+    wrap.appendChild(bubble);
+    wrap.appendChild(avatar);
+  }
+
+  container.appendChild(wrap);
+  if (scroll) scrollToBottom();
+}
+
+function formatContent(text) {
+  // Paragraph breaks → <p>, bold ** text, monospace `code`
+  return text
+    .split(/\n\n+/)
+    .map(p => `<p>${p
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>')
+      .replace(/\n/g, '<br>')
+    }</p>`)
+    .join('');
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+}
+
+function autoResize(el) {
+  el.style.height = '';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+function setInput(text) {
+  const input = document.getElementById('user-input');
+  input.value = text;
+  input.focus();
+  autoResize(input);
+}
+
+function scrollToBottom() {
+  const c = document.getElementById('messages-container');
+  c.scrollTop = c.scrollHeight;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadSessions();
+</script>
+</body>
+</html>

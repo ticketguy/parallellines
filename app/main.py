@@ -1,12 +1,17 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api.v1.router import router as v1_router
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+_STATIC_DIR = Path(__file__).parent.parent / "static"
 
 
 @asynccontextmanager
@@ -20,9 +25,20 @@ async def lifespan(app: FastAPI):
             base_model=settings.BASE_MODEL_NAME,
         )
         logger.info("Model ready.")
+
+    # Start background data ingestion loop
+    from app.services.ingestion import ingestion_loop
+    _ingest_task = asyncio.create_task(ingestion_loop())
+    logger.info("Ingestion background loop started.")
+
     yield
+
     # ── shutdown ──────────────────────────────────────────────────────────
-    # nothing to clean up currently
+    _ingest_task.cancel()
+    try:
+        await _ingest_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(
@@ -38,11 +54,17 @@ app = FastAPI(
 
 app.include_router(v1_router, prefix=settings.API_V1_PREFIX)
 
+# Serve the frontend (chat + dashboard)
+if _STATIC_DIR.exists():
+    app.mount("/app", StaticFiles(directory=str(_STATIC_DIR), html=True), name="static")
+
 
 @app.get("/health", tags=["meta"])
 async def health():
     from app.inference.pipeline import is_model_loaded
+    from app.services.ingestion import get_stats
     return {
         "status": "ok",
         "model_loaded": is_model_loaded(),
+        "ingestion": get_stats(),
     }
