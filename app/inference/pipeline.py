@@ -1,18 +1,28 @@
 """
-Inference pipeline for the fine-tuned IntuOne model.
+IntuOne inference pipeline — the LOCAL model does everything.
 
-Loads the LoRA adapter on top of the base model and generates
-intelligence briefings from live signal data.
+No external LLMs in the inference path. Claude is only used in
+app/training/generator.py to generate labeled training data.
 
-Two modes:
-  1. Fine-tuned model  — loads adapter from disk, runs locally on GPU.
-  2. Teacher fallback  — uses Claude Sonnet when no local model is ready.
-     Useful during early development before the first training run.
+Architecture:
+  1. Score all five signal layers + synthesis
+  2. Format the signal context for the model
+  3. THINK  — model reasons privately through the signals (chain-of-thought)
+  4. EXPLORE — model surfaces non-obvious cross-layer patterns
+  5. Generate the final English briefing (local model only)
+
+When the model is not yet loaded:
+  - Steps 3 and 4 are skipped (return empty/[])
+  - Step 5 returns a "model not loaded" message with the raw layer data
+    so the caller can display something meaningful in the UI
+
+The model improves with every training run. The training pipeline
+(app/training/) uses Claude to generate gold-standard labels, then
+fine-tunes this local model on them.
 """
 import logging
 from typing import Any
 
-from app.config import settings
 from app.schemas.signal import SignalRead
 from app.services.intuone import PRIMARY_LAYERS, _synthesis
 from app.training.formatter import (
@@ -38,11 +48,11 @@ _tokenizer = None
 def load_model(adapter_path: str, base_model: str | None = None) -> None:
     """
     Load the fine-tuned LoRA adapter into memory.
-
-    Call once at startup (e.g. in a FastAPI lifespan event).
-    Raises RuntimeError if ML deps are not installed.
+    Raises RuntimeError if ML dependencies are not installed.
     """
     global _model, _tokenizer
+    from app.config import settings
+
     try:
         import torch
         from peft import PeftModel
@@ -50,7 +60,7 @@ def load_model(adapter_path: str, base_model: str | None = None) -> None:
     except ImportError as exc:
         raise RuntimeError(
             f"ML dependencies not installed: {exc}. "
-            "Run: pip install torch transformers peft bitsandbytes accelerate"
+            "Run: pip install parallellines[ml]"
         ) from exc
 
     resolved_base = base_model or settings.BASE_MODEL_NAME
@@ -76,26 +86,30 @@ def load_model(adapter_path: str, base_model: str | None = None) -> None:
 
     _tokenizer = AutoTokenizer.from_pretrained(adapter_path)
     _tokenizer.pad_token = _tokenizer.eos_token
-    logger.info("IntuOne model loaded.")
+    logger.info("IntuOne model loaded and ready.")
 
 
 def is_model_loaded() -> bool:
     return _model is not None and _tokenizer is not None
 
 
-# ── generation ───────────────────────────────────────────────────────────────
+# ── generation ────────────────────────────────────────────────────────────────
 
 def generate_briefing_local(
     context: str,
     max_new_tokens: int = 600,
-    temperature: float = 0.3,
+    temperature: float = 0.7,
     repetition_penalty: float = 1.1,
 ) -> str:
-    """Run inference with the locally loaded fine-tuned model."""
+    """
+    Run inference with the locally loaded fine-tuned model.
+    All reasoning — thinking, response generation, self-evaluation,
+    memory extraction — flows through this function.
+    """
     import torch
 
     if not is_model_loaded():
-        raise RuntimeError("Model not loaded. Call load_model() first.")
+        raise RuntimeError("IntuOne model not loaded.")
 
     messages = build_chat_messages(context, analysis=None)
     prompt = apply_llama3_chat_template(messages, add_generation_prompt=True)
@@ -112,54 +126,58 @@ def generate_briefing_local(
             pad_token_id=_tokenizer.eos_token_id,
         )
 
-    # Decode only the newly generated tokens
     new_tokens = output_ids[0][inputs["input_ids"].shape[1]:]
     return _tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
 
 
-async def generate_briefing_teacher(context: str) -> str:
+def _not_loaded_response(topic: str, layer_scores: dict, signal_count: int) -> str:
     """
-    Fallback: call Claude Sonnet when no local model is available.
-    Used during development / before first training run.
+    Structured 'model not loaded' message shown in the UI before training.
+    Shows the raw layer scores so there is still something useful to display.
     """
-    import anthropic
+    synth = layer_scores.get("synthesis", {})
+    score = synth.get("score", 0.0)
+    conf = synth.get("confidence", 0.0)
 
-    from app.training.generator import _TEACHER_SYSTEM
+    lines = [
+        f"**IntuOne model not yet trained.** Train the model first with: `POST /api/v1/training/generate`",
+        "",
+        f"Raw signal read for **{topic}**:",
+        f"Overall score: {score:+.3f} | Confidence: {conf:.0%} | Signals ingested: {signal_count}",
+        "",
+    ]
+    for layer, data in layer_scores.items():
+        if layer == "synthesis":
+            continue
+        n = data.get("signal_count", 0)
+        if n:
+            lines.append(f"- {layer}: score={data['score']:+.2f}, conf={data['confidence']:.0%}, n={n}")
 
-    client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    response = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=800,
-        system=_TEACHER_SYSTEM,
-        messages=[{"role": "user", "content": context}],
-    )
-    return response.content[0].text.strip()
+    lines += [
+        "",
+        "Once you have training data, run a fine-tuning pass. "
+        "IntuOne will then generate natural-language briefings from these signals."
+    ]
+    return "\n".join(lines)
 
 
-# ── high-level API ───────────────────────────────────────────────────────────
+# ── high-level API ────────────────────────────────────────────────────────────
 
 async def run_intuone(
     topic: str,
     signals: list[SignalRead],
     time_window: str = "24h",
-    force_teacher: bool = False,
+    force_teacher: bool = False,   # kept for API compatibility — ignored
     user_message: str | None = None,
     extra_context: str | None = None,
 ) -> dict[str, Any]:
     """
-    End-to-end: signals → layer scores → think → explore → briefing.
+    End-to-end inference: signals → layer scores → think → explore → briefing.
 
-    Flow:
-      1. Score all five layers + synthesis
-      2. Format signal context
-      3. THINK — private reasoning scratchpad (Haiku, fast)
-      4. EXPLORE — cross-layer insight mining
-      5. Build full generation context (memory + history + thinking + signals)
-      6. Generate English briefing (local model or teacher Claude)
-
-    Returns a dict with the briefing, metadata, thinking, and insights.
+    Everything runs through the local fine-tuned model.
+    Returns structured metadata + the briefing text.
     """
-    # 1. Score layers
+    # 1. Score all five layers
     layer_scores: dict[str, Any] = {}
     for layer in PRIMARY_LAYERS:
         layer_sigs = [s for s in signals if s.layer == layer.layer_name]
@@ -180,17 +198,16 @@ async def run_intuone(
         user_message=user_message,
     )
 
-    # 3. THINK — private reasoning (runs in parallel with signal context build)
+    # 3 & 4. THINK + EXPLORE — model reasons through signals privately
+    # (both are no-ops if the model isn't loaded yet)
     memory_context = extra_context or ""
-    thinking = await think(
+    thinking = think(
         topic=topic,
         user_message=user_message or f"Analyse signals for: {topic}",
         signal_context=signal_context,
         memory_context=memory_context,
     )
-
-    # 4. EXPLORE — mine non-obvious cross-layer insights
-    insights = await explore_insights(
+    insights = explore_insights(
         topic=topic,
         signal_context=signal_context,
         thinking=thinking,
@@ -205,25 +222,13 @@ async def run_intuone(
     parts.append(signal_context)
     full_context = "\n\n".join(parts)
 
-    # 6. Generate English briefing
-    #    Priority: fine-tuned local model → teacher Claude → rule-based engine
-    #    The rule-based engine always works — no GPU, no API key, no internet.
-    from app.inference.rule_based import generate as rule_based_generate
-
-    if not force_teacher and is_model_loaded():
+    # 6. Generate briefing — local model only
+    if is_model_loaded():
         briefing = generate_briefing_local(full_context)
-        model_used = "local"
-    elif settings.ANTHROPIC_API_KEY and not force_teacher is False:
-        # teacher fallback only if API key is set
-        try:
-            briefing = await generate_briefing_teacher(full_context)
-            model_used = "teacher_claude"
-        except Exception:
-            briefing = rule_based_generate(topic, layer_scores, signals, user_message, time_window)
-            model_used = "rule_based"
+        model_used = "intuone_local"
     else:
-        briefing = rule_based_generate(topic, layer_scores, signals, user_message, time_window)
-        model_used = "rule_based"
+        briefing = _not_loaded_response(topic, layer_scores, len(signals))
+        model_used = "not_loaded"
 
     return {
         "topic": topic,
@@ -234,6 +239,6 @@ async def run_intuone(
         "briefing": briefing,
         "model_used": model_used,
         "signal_count": len(signals),
-        "thinking": thinking,          # stored by chat endpoint, not shown to user
-        "insights": insights,          # seeded as MemoryEntry by chat endpoint
+        "thinking": thinking,
+        "insights": insights,
     }
