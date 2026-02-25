@@ -46,6 +46,9 @@ all = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

@@ -138,10 +138,14 @@ async def run_intuone(
     signals: list[SignalRead],
     time_window: str = "24h",
     force_teacher: bool = False,
+    user_message: str | None = None,
+    extra_context: str | None = None,
 ) -> dict[str, Any]:
     """
     End-to-end: signals → layer scores → formatted context → briefing.
 
+    extra_context: pre-formatted memory + history block injected before
+                   the signal context (populated by the chat endpoint).
     Returns a dict with the briefing text and supporting metadata.
     """
     # Score layers
@@ -156,18 +160,25 @@ async def run_intuone(
         }
     layer_scores["synthesis"] = _synthesis.synthesize(layer_scores)
 
-    context = format_context(
+    signal_context = format_context(
         topic=topic,
         time_window=time_window,
         signals=signals,
         layer_scores=layer_scores,
     )
 
+    # Prepend memory + history if available (chat mode)
+    full_context = (
+        extra_context.rstrip() + "\n\n" + signal_context
+        if extra_context
+        else signal_context
+    )
+
     if not force_teacher and is_model_loaded():
-        briefing = generate_briefing_local(context)
+        briefing = generate_briefing_local(full_context)
         model_used = "local"
     else:
-        briefing = await generate_briefing_teacher(context)
+        briefing = await generate_briefing_teacher(full_context)
         model_used = "teacher_claude"
 
     return {

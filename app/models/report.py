@@ -32,7 +32,7 @@ class IntuOneReport(Base):
     prediction: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     time_window: Mapped[str] = mapped_column(String(20), default="24h")
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")

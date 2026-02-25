@@ -12,7 +12,7 @@ class LayerScoreBase(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
     signal_count: int = 0
     time_window: str = "24h"
-    metadata: dict[str, Any] | None = None
+    extra_data: dict[str, Any] | None = None
 
 
 class LayerScoreCreate(LayerScoreBase):

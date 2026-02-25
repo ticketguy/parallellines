@@ -14,7 +14,7 @@ class IntuOneReportBase(BaseModel):
     narrative_summary: str | None = None
     prediction: str | None = None
     time_window: str = "24h"
-    metadata: dict[str, Any] | None = None
+    extra_data: dict[str, Any] | None = None
 
 
 class IntuOneReportCreate(IntuOneReportBase):

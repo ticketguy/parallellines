@@ -28,7 +28,7 @@ class LayerScore(Base):
 
     # e.g. "1h", "24h", "7d"
     time_window: Mapped[str] = mapped_column(String(20), default="24h")
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
