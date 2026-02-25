@@ -18,6 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database import get_db
+from app.inference.pipeline import run_intuone
+from app.inference.self_improvement import (
+    score_response,
+    seed_memories_from_insights,
+    store_training_example,
+)
 from app.memory.extraction import extract_memories, summarise_session
 from app.memory.retrieval import (
     format_history_for_context,
@@ -36,7 +42,6 @@ from app.schemas.memory import (
     MessageOut,
 )
 from app.schemas.signal import SignalRead
-from app.inference.pipeline import run_intuone
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -149,7 +154,18 @@ async def chat_message(payload: MessageIn, db: AsyncSession = Depends(get_db)):
     )
     db.add(user_msg)
 
-    # 7b. Persist assistant message
+    # 7b. Persist private thinking (role="thinking") — internal only, not returned
+    thinking = output.get("thinking", "")
+    if thinking:
+        thinking_msg = ConversationMessage(
+            session_id=session.id,
+            role="thinking",
+            content=thinking,
+            topics_referenced=topics or None,
+        )
+        db.add(thinking_msg)
+
+    # 7c. Persist assistant message
     assistant_msg = ConversationMessage(
         session_id=session.id,
         role="assistant",
@@ -160,11 +176,11 @@ async def chat_message(payload: MessageIn, db: AsyncSession = Depends(get_db)):
     )
     db.add(assistant_msg)
 
-    # 7c. Update session topics
+    # 7d. Update session topics
     existing_topics = set(session.topics or [])
     session.topics = list(existing_topics | set(topics))
 
-    # 7d. Auto-summarise at N turns
+    # 7e. Auto-summarise at N turns
     all_messages = list(history) + [user_msg, assistant_msg]
     assistant_turns = sum(1 for m in all_messages if m.role == "assistant")
     if assistant_turns > 0 and assistant_turns % _SUMMARISE_EVERY_N_TURNS == 0:
@@ -173,14 +189,45 @@ async def chat_message(payload: MessageIn, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(assistant_msg)
 
-    # 7e. Extract long-term memories from the response (best-effort, non-blocking)
+    # 7f. Self-improvement loop (best-effort, non-blocking)
     try:
+        # Score response quality
+        signal_ctx_snippet = enriched_content[:1000]
+        quality_score, feedback = await score_response(
+            user_message=payload.content,
+            briefing=output["briefing"],
+            signal_context=signal_ctx_snippet,
+        )
+        logger.debug("Response quality score: %.2f — %s", quality_score, feedback)
+
+        # Store as training example (with thinking prepended as context)
+        await store_training_example(
+            context=enriched_content,
+            briefing=output["briefing"],
+            thinking=thinking,
+            quality_score=quality_score,
+            feedback=feedback,
+            topic=topic_str,
+            db=db,
+        )
+
+        # Seed MemoryEntry rows from cross-layer insights
+        insights: list[str] = output.get("insights", [])
+        await seed_memories_from_insights(
+            insights=insights,
+            topic=topic_str,
+            session_id=session.id,
+            db=db,
+        )
+
+        # Extract declarative long-term memories from the briefing text
         new_memories = await extract_memories(output["briefing"], session_id=session.id)
         for m in new_memories:
             db.add(m)
+
         await db.commit()
     except Exception as exc:
-        logger.warning("Memory extraction failed (non-fatal): %s", exc)
+        logger.warning("Self-improvement loop failed (non-fatal): %s", exc)
 
     return MessageOut(
         session_id=session.id,

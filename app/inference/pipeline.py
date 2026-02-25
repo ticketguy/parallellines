@@ -20,6 +20,11 @@ from app.training.formatter import (
     build_chat_messages,
     format_context,
 )
+from app.inference.reasoning import (
+    explore_insights,
+    format_thinking_for_context,
+    think,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -142,13 +147,19 @@ async def run_intuone(
     extra_context: str | None = None,
 ) -> dict[str, Any]:
     """
-    End-to-end: signals → layer scores → formatted context → briefing.
+    End-to-end: signals → layer scores → think → explore → briefing.
 
-    extra_context: pre-formatted memory + history block injected before
-                   the signal context (populated by the chat endpoint).
-    Returns a dict with the briefing text and supporting metadata.
+    Flow:
+      1. Score all five layers + synthesis
+      2. Format signal context
+      3. THINK — private reasoning scratchpad (Haiku, fast)
+      4. EXPLORE — cross-layer insight mining
+      5. Build full generation context (memory + history + thinking + signals)
+      6. Generate English briefing (local model or teacher Claude)
+
+    Returns a dict with the briefing, metadata, thinking, and insights.
     """
-    # Score layers
+    # 1. Score layers
     layer_scores: dict[str, Any] = {}
     for layer in PRIMARY_LAYERS:
         layer_sigs = [s for s in signals if s.layer == layer.layer_name]
@@ -160,20 +171,41 @@ async def run_intuone(
         }
     layer_scores["synthesis"] = _synthesis.synthesize(layer_scores)
 
+    # 2. Format signal context
     signal_context = format_context(
         topic=topic,
         time_window=time_window,
         signals=signals,
         layer_scores=layer_scores,
+        user_message=user_message,
     )
 
-    # Prepend memory + history if available (chat mode)
-    full_context = (
-        extra_context.rstrip() + "\n\n" + signal_context
-        if extra_context
-        else signal_context
+    # 3. THINK — private reasoning (runs in parallel with signal context build)
+    memory_context = extra_context or ""
+    thinking = await think(
+        topic=topic,
+        user_message=user_message or f"Analyse signals for: {topic}",
+        signal_context=signal_context,
+        memory_context=memory_context,
     )
 
+    # 4. EXPLORE — mine non-obvious cross-layer insights
+    insights = await explore_insights(
+        topic=topic,
+        signal_context=signal_context,
+        thinking=thinking,
+    )
+
+    # 5. Build full context: memory/history + thinking + signals
+    parts: list[str] = []
+    if extra_context:
+        parts.append(extra_context.rstrip())
+    if thinking:
+        parts.append(format_thinking_for_context(thinking))
+    parts.append(signal_context)
+    full_context = "\n\n".join(parts)
+
+    # 6. Generate English briefing
     if not force_teacher and is_model_loaded():
         briefing = generate_briefing_local(full_context)
         model_used = "local"
@@ -190,4 +222,6 @@ async def run_intuone(
         "briefing": briefing,
         "model_used": model_used,
         "signal_count": len(signals),
+        "thinking": thinking,          # stored by chat endpoint, not shown to user
+        "insights": insights,          # seeded as MemoryEntry by chat endpoint
     }

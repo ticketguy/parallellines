@@ -47,6 +47,8 @@ class TrainingExample(Base):
     is_validated: Mapped[bool] = mapped_column(Boolean, default=False)
     # "train" | "val" | "test"
     split: Mapped[str] = mapped_column(String(10), default="train")
+    # Teacher feedback / self-evaluation notes
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text("now()")
