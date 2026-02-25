@@ -1,0 +1,167 @@
+"""
+Teacher-model label generator.
+
+Uses Claude Sonnet (the teacher) to generate gold-standard intelligence
+briefings from formatted signal contexts.  These (context, analysis) pairs
+become the fine-tuning dataset for our own model.
+
+Flow:
+  1. Pull recent signals from the DB for a given topic.
+  2. Run layer scoring (same as production).
+  3. Format into a context string via formatter.py.
+  4. Call Claude Sonnet with the context.
+  5. Store the result as a TrainingExample row.
+"""
+import logging
+import random
+from datetime import datetime, timezone
+
+import anthropic
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.config import settings
+from app.models.signal import Signal
+from app.models.training_example import TrainingExample
+from app.schemas.signal import SignalRead
+from app.services.intuone import PRIMARY_LAYERS, _synthesis
+from app.training.formatter import build_chat_messages, format_context
+
+logger = logging.getLogger(__name__)
+
+_TEACHER_SYSTEM = """\
+You are a senior intelligence analyst writing briefings for a perception engine
+called IntuOne. You will be given structured signal data from prediction markets,
+social discourse, news coverage, NLP sentiment, and geopolitical sources.
+
+Write a concise intelligence briefing (200–400 words) that:
+1. Opens with one sentence stating the overall directional signal.
+2. Walks through each layer's contribution (skip layers with no data).
+3. Identifies the most significant individual signals.
+4. Notes any cross-layer convergence or divergence.
+5. Closes with a directional outlook and confidence qualifier.
+
+Style: precise, analytical, third-person. No bullet points in the final output —
+flowing prose only. Ground every claim in the data provided.\
+"""
+
+
+async def generate_example(
+    topic: str,
+    signals: list[SignalRead],
+    layer_scores: dict,
+    time_window: str = "24h",
+    split: str = "train",
+) -> TrainingExample | None:
+    """
+    Generate one TrainingExample for `topic` using Claude as the teacher.
+
+    Returns None if the API call fails or yields an unusable response.
+    """
+    context = format_context(
+        topic=topic,
+        time_window=time_window,
+        signals=signals,
+        layer_scores=layer_scores,
+    )
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=_TEACHER_SYSTEM,
+            messages=[{"role": "user", "content": context}],
+        )
+        analysis: str = response.content[0].text.strip()
+    except Exception as exc:
+        logger.error("Teacher model call failed for topic=%r: %s", topic, exc)
+        return None
+
+    if len(analysis) < 50:
+        logger.warning("Teacher returned suspiciously short analysis for topic=%r", topic)
+        return None
+
+    return TrainingExample(
+        topic=topic,
+        time_window=time_window,
+        context=context,
+        analysis=analysis,
+        source="synthetic_claude",
+        layer_breakdown=layer_scores,
+        signal_ids=[str(s.id) for s in signals],
+        split=split,
+    )
+
+
+async def generate_examples_for_topic(
+    topic: str,
+    db: AsyncSession,
+    time_window: str = "24h",
+    max_signals: int = 50,
+) -> TrainingExample | None:
+    """
+    Full pipeline: fetch signals from DB → score → generate → store.
+    Returns the stored TrainingExample or None on failure.
+    """
+    # 1. Fetch recent signals for this topic
+    result = await db.execute(
+        select(Signal)
+        .where(Signal.topic_tags.any(topic))  # type: ignore[attr-defined]
+        .order_by(Signal.created_at.desc())
+        .limit(max_signals)
+    )
+    raw_signals = result.scalars().all()
+
+    if not raw_signals:
+        logger.warning("No signals found for topic=%r — skipping", topic)
+        return None
+
+    signals = [SignalRead.model_validate(s) for s in raw_signals]
+
+    # 2. Score each layer
+    layer_scores: dict = {}
+    for layer in PRIMARY_LAYERS:
+        layer_sigs = [s for s in signals if s.layer == layer.layer_name]
+        ls = await layer.score(layer_sigs, topic, time_window)
+        layer_scores[layer.layer_name] = {
+            "score": ls.score,
+            "confidence": ls.confidence,
+            "signal_count": ls.signal_count,
+        }
+    layer_scores["synthesis"] = _synthesis.synthesize(layer_scores)
+
+    # 3. Assign train/val/test split deterministically (80/10/10)
+    r = random.random()
+    split = "train" if r < 0.8 else ("val" if r < 0.9 else "test")
+
+    # 4. Generate example via teacher
+    example = await generate_example(
+        topic=topic,
+        signals=signals,
+        layer_scores=layer_scores,
+        time_window=time_window,
+        split=split,
+    )
+    if example is None:
+        return None
+
+    # 5. Persist
+    db.add(example)
+    await db.commit()
+    await db.refresh(example)
+    logger.info("Generated training example %s for topic=%r", example.id, topic)
+    return example
+
+
+async def batch_generate(
+    topics: list[str],
+    db: AsyncSession,
+    time_window: str = "24h",
+) -> dict[str, int]:
+    """Generate examples for a list of topics. Returns {topic: 1|0} status map."""
+    results: dict[str, int] = {}
+    for topic in topics:
+        example = await generate_examples_for_topic(topic, db, time_window)
+        results[topic] = 1 if example else 0
+    return results

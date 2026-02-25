@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "IntuOne Perception Engine — multi-layer internet signal analysis"
 requires-python = ">=3.11"
 dependencies = [
+    # API + DB
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
     "sqlalchemy[asyncio]>=2.0.0",
@@ -17,13 +18,28 @@ dependencies = [
     "pydantic-settings>=2.7.0",
     "httpx>=0.28.0",
     "python-dotenv>=1.0.0",
+    # Teacher model + inference fallback
+    "anthropic>=0.45.0",
 ]
 
 [project.optional-dependencies]
+# Full ML stack — install on GPU machines for training / local inference
+ml = [
+    "torch>=2.5.0",
+    "transformers>=4.47.0",
+    "peft>=0.14.0",
+    "trl>=0.13.0",
+    "datasets>=3.2.0",
+    "bitsandbytes>=0.45.0",
+    "accelerate>=1.2.0",
+]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.25.0",
     "pytest-cov>=6.0.0",
+]
+all = [
+    "parallellines[ml,dev]",
 ]
 
 [tool.pytest.ini_options]

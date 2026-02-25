@@ -4,6 +4,7 @@ from app.models.market import PredictionMarket
 from app.models.narrative import NarrativeAnalysis
 from app.models.report import IntuOneReport
 from app.models.signal import Signal
+from app.models.training_example import TrainingExample
 
 __all__ = [
     "Base",
@@ -12,4 +13,5 @@ __all__ = [
     "NarrativeAnalysis",
     "PredictionMarket",
     "IntuOneReport",
+    "TrainingExample",
 ]

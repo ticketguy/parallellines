@@ -12,5 +12,14 @@ class Settings(BaseSettings):
     POLYMARKET_API_URL: str = "https://clob.polymarket.com"
     GAMMA_API_URL: str = "https://gamma-api.polymarket.com"
 
+    # Teacher model (label generation) + inference fallback
+    ANTHROPIC_API_KEY: str = ""
+
+    # Fine-tuned model — set after your first training run
+    BASE_MODEL_NAME: str = "meta-llama/Meta-Llama-3.1-8B-Instruct"
+    ADAPTER_PATH: str = "./checkpoints/intuone-v1/final_adapter"
+    # Set to "true" to auto-load the model at startup
+    LOAD_MODEL_ON_STARTUP: bool = False
+
 
 settings = Settings()
