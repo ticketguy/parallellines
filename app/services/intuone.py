@@ -43,7 +43,7 @@ async def generate_report(
             "signal_count": ls.signal_count,
         }
 
-    overall = _synthesis.synthesize(layer_scores)
+    overall = await _synthesis.synthesize(layer_scores, topic=topic)
 
     return IntuOneReportCreate(
         topic=topic,

@@ -190,7 +190,7 @@ async def run_intuone(
             "confidence": ls.confidence,
             "signal_count": ls.signal_count,
         }
-    layer_scores["synthesis"] = _synthesis.synthesize(layer_scores)
+    layer_scores["synthesis"] = await _synthesis.synthesize(layer_scores, topic=topic)
 
     # 2. Format signal context
     signal_context = format_context(

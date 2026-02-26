@@ -1,28 +1,38 @@
+import json
+import logging
+import re
+
 from app.constants import LayerType
 from app.layers.base import LayerBase
 from app.schemas.layer import LayerScoreCreate
 from app.schemas.signal import SignalRead
 
-# Relative importance of each layer in the final synthesis.
-# Weights sum to 1.0. Adjust as you calibrate the model.
-LAYER_WEIGHTS: dict[str, float] = {
-    LayerType.PROBABILITY: 0.35,
-    LayerType.ECHO: 0.20,
-    LayerType.MEMORY: 0.20,
-    LayerType.CONVICTION: 0.15,
-    LayerType.SHADOW: 0.10,
-}
+logger = logging.getLogger(__name__)
+
+_SYNTHESIZE_PROMPT = """\
+[SYNTHESIZE-PERCEPTION]
+Layer readings for "{topic}":
+{layer_scores}
+
+Synthesize these five perception layers into the overall Perception Index.
+Consider how the layers interact: convergence increases confidence, divergence signals instability.
+High Conviction against falling Probability is risk, not certainty.
+High Echo without Conviction is noise amplification.
+High Memory with falling Probability is a zombie belief.
+
+Output ONLY this JSON (no other text):
+{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+
+score: overall directional read across all layers
+confidence: degree of cross-layer coherence
+[/SYNTHESIZE-PERCEPTION]"""
 
 
 class SynthesisLayer(LayerBase):
     """
-    Perception Index — confidence-weighted composite of all parallel layer readings.
-
-    This is not a sixth perception layer. It is the aggregated reading that
-    IntuOne receives. A single compressed score hides instability: high
-    Conviction alongside high Fracture signals risk, not certainty. The
-    confidence-weighting here ensures layers with no active signal do not
-    drag the composite toward zero.
+    Perception Index — the IntuOne model synthesizes all five layer readings
+    into a single coherent directional score. Divergence between layers is
+    itself a signal: it lowers confidence and raises the instability reading.
 
     Not fed raw signals — operates on LayerScore objects via synthesize().
     The score() method is a no-op stub kept for interface compliance.
@@ -36,45 +46,44 @@ class SynthesisLayer(LayerBase):
         topic: str,
         time_window: str = "24h",
     ) -> LayerScoreCreate:
-        # SynthesisLayer is driven by synthesize(), not raw signals.
         return self._empty_score(topic, time_window)
 
-    def synthesize(self, layer_scores: dict[str, dict]) -> dict[str, float]:
+    async def synthesize(
+        self,
+        layer_scores: dict[str, dict],
+        topic: str = "",
+    ) -> dict[str, float]:
         """
-        Combine per-layer scores into a single overall score.
-
-        Each layer's contribution is scaled by both its static weight and
-        its computed confidence, so layers with no data don't drag the
-        result toward zero.
-
-        Args:
-            layer_scores: {layer_name: {score, confidence, signal_count}}
-
-        Returns:
-            {score: float, confidence: float}
+        Ask IntuOne to synthesize five layer readings into the Perception Index.
+        Returns {"score": float, "confidence": float}.
+        Returns zeroes if the model is not loaded.
         """
-        total_effective_weight = 0.0
-        weighted_score = 0.0
-        total_weight_for_conf = 0.0
-        weighted_conf = 0.0
+        from app.inference.pipeline import generate_briefing_local, is_model_loaded
 
-        for layer_name, data in layer_scores.items():
-            static_weight = LAYER_WEIGHTS.get(layer_name, 0.1)
-            conf = float(data.get("confidence", 0.0))
-            if conf <= 0:
-                continue
-            effective_w = static_weight * conf
-            weighted_score += float(data["score"]) * effective_w
-            weighted_conf += conf * static_weight
-            total_effective_weight += effective_w
-            total_weight_for_conf += static_weight
-
-        if total_effective_weight == 0:
+        if not is_model_loaded():
             return {"score": 0.0, "confidence": 0.0}
 
-        return {
-            "score": round(weighted_score / total_effective_weight, 4),
-            "confidence": round(
-                weighted_conf / total_weight_for_conf if total_weight_for_conf else 0.0, 4
-            ),
-        }
+        lines = []
+        for name, data in layer_scores.items():
+            sc = data.get("score", 0.0)
+            conf = data.get("confidence", 0.0)
+            n = data.get("signal_count", 0)
+            lines.append(f"  {name}: score={sc:+.3f}, confidence={conf:.0%}, signals={n}")
+
+        prompt = _SYNTHESIZE_PROMPT.format(
+            topic=topic or "the topic",
+            layer_scores="\n".join(lines),
+        )
+
+        try:
+            raw = generate_briefing_local(prompt, max_new_tokens=60, temperature=0.1)
+            match = re.search(r"\{[^}]+\}", raw)
+            if match:
+                data = json.loads(match.group())
+                score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
+                conf = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+                return {"score": round(score, 4), "confidence": round(conf, 4)}
+        except Exception as exc:
+            logger.debug("[synthesis] LLM synthesize failed: %s", exc)
+
+        return {"score": 0.0, "confidence": 0.0}

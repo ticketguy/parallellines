@@ -52,23 +52,6 @@ def _extract_sentences(text: str, max_chars: int = 2000) -> str:
     return text[:max_chars]
 
 
-def _rough_sentiment(text: str) -> float:
-    """
-    Very lightweight sentiment proxy — just counts positive/negative words.
-    Replaced by the NLP layer scorer for real analysis; this is a fast hint.
-    """
-    positive = {"surge", "rally", "gain", "rise", "bullish", "win", "record",
-                 "up", "growth", "strong", "high", "beat", "exceed"}
-    negative = {"crash", "fall", "drop", "decline", "bearish", "lose", "loss",
-                 "low", "weak", "miss", "fail", "collapse", "down"}
-    words = set(re.findall(r"\b[a-z]+\b", text.lower()))
-    pos = len(words & positive)
-    neg = len(words & negative)
-    total = pos + neg
-    if total == 0:
-        return 0.0
-    return round((pos - neg) / total, 3)
-
 
 @register_connector
 class WebCrawlerConnector(BaseConnector):
@@ -108,7 +91,6 @@ class WebCrawlerConnector(BaseConnector):
 
         text = _clean_html(html)
         snippet = _extract_sentences(text)
-        sentiment = _rough_sentiment(snippet)
         layer = source.get("layer", LayerType.MEMORY)
         domain = source.get("domain")  # free-form, e.g. "news", "social", "crypto"
         topic_tags = source.get("topic_tags", [])
@@ -123,12 +105,10 @@ class WebCrawlerConnector(BaseConnector):
             layer=layer,
             domain=domain,
             topic_tags=topic_tags,
-            signal_strength=abs(sentiment),
             raw_data={"url": url, "label": label, "text_length": len(text)},
             processed_data={
                 "text": snippet,
                 "headline": label,
-                "sentiment_score": sentiment,
                 "url": url,
             },
             url=url,

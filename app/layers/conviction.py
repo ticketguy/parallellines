@@ -10,13 +10,27 @@ class ConvictionLayer(LayerBase):
 
     Measures emotional intensity and depth of commitment in expressed belief,
     not just positive/negative polarity. High conviction can exist on both
-    sides of a probability. Stub until a conviction submind is wired up.
-
-    Signal input: processed_data["sentiment_score"] in range -1.0 to +1.0,
-    where magnitude reflects depth of conviction, sign reflects direction.
+    sides of a probability. Conviction is depth; Echo is spread.
     """
 
     layer_name = LayerType.CONVICTION
+
+    _layer_prompt = """\
+[SCORE-LAYER: CONVICTION]
+Topic: {topic} | Window: {time_window}
+
+Signals:
+{signals}
+
+Question: How deeply is belief held in these signals? Is there intense emotional commitment \
+and strong conviction, or is belief shallow, hedged, and tentative?
+
+Output ONLY this JSON (no other text):
+{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+
+score: -1.0=deep conviction against the outcome, +1.0=deep conviction for it, 0.0=shallow or divided
+confidence: how much signal data supports this conviction reading
+[/SCORE-LAYER]"""
 
     async def score(
         self,
@@ -26,30 +40,12 @@ class ConvictionLayer(LayerBase):
     ) -> LayerScoreCreate:
         if not signals:
             return self._empty_score(topic, time_window)
-
-        weighted_scores: list[float] = []
-        weights: list[float] = []
-
-        for sig in signals:
-            pd = sig.processed_data or {}
-            sentiment = pd.get("sentiment_score")
-            if sentiment is None:
-                continue
-            weight = float(sig.signal_strength or 0.5)
-            weighted_scores.append(float(sentiment) * weight)
-            weights.append(weight)
-
-        if not weights:
-            return self._empty_score(topic, time_window)
-
-        score = sum(weighted_scores) / sum(weights)
-        avg_conf = sum(sig.confidence or 0.0 for sig in signals) / len(signals)
-
+        sc, conf = await self._llm_score(signals, topic, time_window)
         return LayerScoreCreate(
             layer=self.layer_name,
             topic=topic,
-            score=round(score, 4),
-            confidence=round(avg_conf, 4),
+            score=round(sc, 4),
+            confidence=round(conf, 4),
             signal_count=len(signals),
             time_window=time_window,
         )

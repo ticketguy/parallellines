@@ -8,14 +8,29 @@ class ProbabilityLayer(LayerBase):
     """
     Probability Layer — "What does the crowd price as likely?"
 
-    Reads prediction market yes_price as a proxy for collective probability
-    assignment. Score is the weighted average of (yes_price - 0.5) * 2,
-    mapping [0, 1] → [-1, +1], weighted by signal_strength (volume-derived).
-
-    A yes_price of 0.8 → +0.6; yes_price of 0.3 → -0.4.
+    Reads the collective probability assignment across all available signals.
+    A prediction market at YES=0.73 means the crowd gives 73% probability.
+    High-volume markets carry more epistemic weight than thin ones.
     """
 
     layer_name = LayerType.PROBABILITY
+
+    _layer_prompt = """\
+[SCORE-LAYER: PROBABILITY]
+Topic: {topic} | Window: {time_window}
+
+Signals:
+{signals}
+
+Question: What does available evidence collectively price as the probability of this outcome? \
+Consider prediction market prices, trading volume, and liquidity depth.
+
+Output ONLY this JSON (no other text):
+{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+
+score: -1.0=crowd prices outcome as very unlikely, +1.0=very likely, 0.0=uncertain/50-50
+confidence: how strongly the signals support this reading
+[/SCORE-LAYER]"""
 
     async def score(
         self,
@@ -25,32 +40,12 @@ class ProbabilityLayer(LayerBase):
     ) -> LayerScoreCreate:
         if not signals:
             return self._empty_score(topic, time_window)
-
-        weighted_scores: list[float] = []
-        weights: list[float] = []
-
-        for sig in signals:
-            pd = sig.processed_data or {}
-            yes_price = pd.get("yes_price")
-            if yes_price is None:
-                continue
-            # Maps [0, 1] → [-1, +1]
-            directional = (float(yes_price) - 0.5) * 2.0
-            weight = float(sig.signal_strength or 0.5)
-            weighted_scores.append(directional * weight)
-            weights.append(weight)
-
-        if not weights:
-            return self._empty_score(topic, time_window)
-
-        score = sum(weighted_scores) / sum(weights)
-        avg_conf = sum(sig.confidence or 0.0 for sig in signals) / len(signals)
-
+        sc, conf = await self._llm_score(signals, topic, time_window)
         return LayerScoreCreate(
             layer=self.layer_name,
             topic=topic,
-            score=round(score, 4),
-            confidence=round(avg_conf, 4),
+            score=round(sc, 4),
+            confidence=round(conf, 4),
             signal_count=len(signals),
             time_window=time_window,
         )

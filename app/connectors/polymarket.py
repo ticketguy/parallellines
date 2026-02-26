@@ -69,15 +69,6 @@ def _market_to_signal(market: dict) -> RawSignal | None:
         volume_total = float(market.get("volume", 0) or 0)
         liquidity = float(market.get("liquidity", 0) or 0)
 
-        # Signal strength: combination of YES conviction + liquidity proxy
-        # Scale: yes_price drives direction; confidence = distance from 0.5 * liquidity weight
-        conviction = abs(yes_price - 0.5) * 2  # 0 at 50/50, 1 at 100% or 0%
-        liq_weight = min(liquidity / 50_000, 1.0) if liquidity else 0.3
-        signal_strength = conviction * (0.6 + 0.4 * liq_weight)
-
-        # Directional score: positive = YES favoured, negative = NO favoured
-        directional_score = (yes_price - 0.5) * 2  # -1 to +1
-
         tags_raw = market.get("tags", []) or []
         topics = _extract_topics(question, tags_raw)
 
@@ -88,7 +79,6 @@ def _market_to_signal(market: dict) -> RawSignal | None:
             layer=LayerType.PROBABILITY,
             domain="market",
             topic_tags=topics,
-            signal_strength=round(signal_strength, 4),
             raw_data={
                 "id": market.get("id"),
                 "question": question,
@@ -105,7 +95,6 @@ def _market_to_signal(market: dict) -> RawSignal | None:
                 "outcomes": outcomes,
                 "volume_24h": volume_24h,
                 "liquidity": liquidity,
-                "directional_score": round(directional_score, 4),
             },
             url=f"https://polymarket.com/event/{market.get('slug', '')}",
             external_id=external_id,
