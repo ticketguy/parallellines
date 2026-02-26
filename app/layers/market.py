@@ -6,11 +6,13 @@ from app.schemas.signal import SignalRead
 
 class MarketLayer(LayerBase):
     """
-    Scores prediction market signals.
+    Probability Layer — "What does the crowd price as likely?"
 
-    Strategy: weighted average of yes_price deviations from 0.5, where
-    the weight is signal_strength (volume-derived). A yes_price of 0.8
-    maps to a directional score of +0.6; yes_price 0.3 maps to -0.4.
+    Reads prediction market yes_price as a proxy for collective probability
+    assignment. Score is the weighted average of (yes_price - 0.5) * 2,
+    mapping [0, 1] → [-1, +1], weighted by signal_strength (volume-derived).
+
+    A yes_price of 0.8 → +0.6; yes_price of 0.3 → -0.4.
     """
 
     layer_name = LayerType.MARKET

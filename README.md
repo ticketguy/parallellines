@@ -1,54 +1,64 @@
 # ParallelLines — IntuOne Perception Engine
 
-A perception engine built on two primary layers — **Submind** and **IntuOne** — that turns raw internet signals into real-time intelligence briefings on prediction markets.
+A perception framework that maps how belief, sentiment, and conviction form, evolve, and persist. Built on two primary layers — **Submind** and **IntuOne** — it does not attempt to predict outcomes. It observes how humans relate to uncertainty, meaning, and trust.
 
 ---
 
 ## Architecture
-
-The engine has two primary layers:
 
 ```
 External sources
 (Polymarket, Twitter, news sites, …)
           │
           ▼
-╔═════════════════════════════════════╗
-║          SUBMIND LAYER              ║  app/agents/
-║                                     ║
-║  PolymarketSubmind  ✓               ║  Each submind owns one data source.
-║  TwitterSubmind     ~  (planned)    ║  It fetches raw data and normalises
-║  NewsSubmind        ~  (planned)    ║  it into typed Signal objects.
-╚══════════════════╤══════════════════╝
-                   │  normalised signals
-                   ▼
-        ┌──────────────────────────┐
-        │   Signal processing      │  app/layers/
-        │   market · news ·        │  Six scorers reduce signals to
-        │   sentiment · social ·   │  numeric layer scores (-1 to +1).
-        │   geopolitical ·         │
-        │   synthesis              │
-        └──────────┬───────────────┘
-                   │  layer scores
-                   ▼
-╔═════════════════════════════════════╗
-║          INTUONE LAYER              ║  app/inference/
-║                                     ║
-║  Fine-tuned Llama 3.1 8B (QLoRA)   ║  Reads all layer scores and
-║  LoRA adapter trained on Claude-   ║  generates a structured
-║  labelled briefings                 ║  intelligence briefing.
-╚══════════════════╤══════════════════╝
+╔═════════════════════════════════════════════════════════════╗
+║                     SUBMIND LAYER                           ║  app/agents/
+║                                                             ║
+║  PolymarketSubmind  ✓    Silent observer. No interpretation.║
+║  TwitterSubmind     ~    Each submind owns one source and   ║
+║  NewsSubmind        ~    records raw presence as Signals.   ║
+╚══╤══════════════════════════════════════════════════════════╝
+   │  signals fan out to all layers simultaneously
+   │
+   ├──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
+   ▼              ▼              ▼              ▼              ▼              ▼
+┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
+│PROBABILITY│ │CONVICTION│ │   ECHO   │ │  MEMORY  │ │  SHADOW  │ │FRACTURE ~│
+│  market  │ │sentiment │ │  social  │ │   news   │ │geopolit. │ │(planned) │
+│          │ │          │ │          │ │          │ │          │ │          │
+│ What does│ │How deeply│ │How is    │ │How is    │ │What unspo│ │Where does│
+│ the crowd│ │is belief │ │belief    │ │belief    │ │ken forces│ │belief    │
+│ price as │ │held?     │ │amplified?│ │preserved?│ │drive it? │ │detach    │
+│ likely?  │ │          │ │          │ │          │ │          │ │from fact?│
+└────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └──────────┘
+     │             │            │             │            │
+     └─────────────┴────────────┴─────────────┴────────────┘
+                                    │
+                             PERCEPTION INDEX
+                        (non-linear composite — app/layers/synthesis.py)
+                                    │
+                                    ▼
+╔═════════════════════════════════════════════════════════════╗
+║                     INTUONE LAYER                           ║  app/inference/
+║                                                             ║
+║  Fine-tuned Llama 3.1 8B (QLoRA)   Interpreter. Reads the  ║
+║  LoRA adapter trained on Claude-   Perception Index and     ║
+║  generated perception analyses     translates it into       ║
+║                                    natural-language output. ║
+╚══════════════════╤══════════════════════════════════════════╝
                    │
        ┌───────────┼───────────┐
        ▼           ▼           ▼
     Chat UI    Dashboard    REST API
 ```
 
-**Submind layer** — each submind is an autonomous agent responsible for exactly one external source. It knows the source's API, normalises the data into the common `SignalCreate` schema, and assigns it to the correct analytical layer. Adding a new data source means writing a new submind.
+**Submind layer** — the silent observer. Each submind owns exactly one external source. It fetches raw data, records presence without interpretation, and normalises into typed `Signal` objects. Adding a new data source means writing a new submind.
 
-**IntuOne layer** — the fine-tuned local model. It receives a structured context of layer scores and signal excerpts and produces a briefing. It is trained via a teacher→student loop: Claude generates gold-standard briefings, and QLoRA fine-tuning bakes that reasoning into a model that runs entirely on your own hardware.
+**The six perception layers** run simultaneously and independently — each answers a different question about the same reality. They do not form a pipeline. No layer overrides another. The Perception Index is their non-linear composite; compressing it to a single score hides instability (high Conviction + high Fracture = instability, not certainty).
 
-The six signal-processing layers (market, news, sentiment, social, geopolitical, synthesis) sit between the two primary layers as a normalisation pipeline, not as top-level architecture.
+**Fracture Layer** — not yet implemented. Will detect divergence between crowd probability and minority conviction: where belief is detaching from data.
+
+**IntuOne layer** — the interpreter. It reads resonance, not correctness. It receives the full Perception Index and translates it into natural-language analysis. Trained via a teacher→student loop: Claude generates gold-standard perception analyses, QLoRA bakes that reasoning into a local model that runs entirely on your own hardware.
 
 ---
 

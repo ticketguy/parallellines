@@ -6,11 +6,14 @@ from app.schemas.signal import SignalRead
 
 class SentimentLayer(LayerBase):
     """
-    Scores NLP-derived sentiment signals (e.g. from LLM analysis of text).
+    Conviction Layer — "How deeply is the belief held?"
 
-    Stub — returns 0/0 until a sentiment submind is wired up.
-    When live: score will aggregate structured sentiment outputs
-    from LLM-based text analysis across multiple sources.
+    Measures emotional intensity and depth of commitment in expressed belief,
+    not just positive/negative polarity. High conviction can exist on both
+    sides of a probability. Stub until a conviction submind is wired up.
+
+    Signal input: processed_data["sentiment_score"] in range -1.0 to +1.0,
+    where magnitude reflects depth of conviction, sign reflects direction.
     """
 
     layer_name = LayerType.SENTIMENT

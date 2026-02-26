@@ -16,12 +16,16 @@ LAYER_WEIGHTS: dict[str, float] = {
 
 class SynthesisLayer(LayerBase):
     """
-    Meta-layer that aggregates scores from the five primary layers into
-    a single directional intelligence score.
+    Perception Index — confidence-weighted composite of all parallel layer readings.
 
-    This layer is not fed raw signals — it operates on LayerScore objects
-    via the `synthesize()` method. The `score()` method is a no-op stub
-    kept for interface compliance.
+    This is not a sixth perception layer. It is the aggregated reading that
+    IntuOne receives. A single compressed score hides instability: high
+    Conviction alongside high Fracture signals risk, not certainty. The
+    confidence-weighting here ensures layers with no active signal do not
+    drag the composite toward zero.
+
+    Not fed raw signals — operates on LayerScore objects via synthesize().
+    The score() method is a no-op stub kept for interface compliance.
     """
 
     layer_name = LayerType.SYNTHESIS

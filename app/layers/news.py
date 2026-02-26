@@ -6,11 +6,15 @@ from app.schemas.signal import SignalRead
 
 class NewsLayer(LayerBase):
     """
-    Scores news / media coverage signals.
+    Memory Layer — "How is belief preserved after contradiction?"
 
-    Stub — returns 0/0 until a news submind is wired up.
-    When live: score will reflect headline sentiment and volume of
-    coverage relative to baseline, weighted by source credibility.
+    Tracks narrative persistence in media coverage: how a belief continues
+    to circulate in headlines even after data has moved against it. High
+    Memory with falling Probability signals a belief that is refusing to die.
+    Stub until a news submind is wired up.
+
+    Signal input: processed_data["sentiment_score"] in range -1.0 to +1.0,
+    weighted by signal_strength (source credibility / coverage volume proxy).
     """
 
     layer_name = LayerType.NEWS

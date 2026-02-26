@@ -1,24 +1,26 @@
 """
-IntuOne inference pipeline — the LOCAL model does everything.
+IntuOne inference pipeline — the interpreter layer.
 
 No external LLMs in the inference path. Claude is only used in
-app/training/generator.py to generate labeled training data.
+app/training/generator.py to generate gold-standard perception analyses
+for training data.
 
 Architecture:
-  1. Score all five signal layers + synthesis
-  2. Format the signal context for the model
-  3. THINK  — model reasons privately through the signals (chain-of-thought)
-  4. EXPLORE — model surfaces non-obvious cross-layer patterns
-  5. Generate the final English briefing (local model only)
+  1. Score all five parallel perception layers simultaneously
+  2. Synthesise into the Perception Index
+  3. THINK  — IntuOne reasons privately through the layer readings
+  4. EXPLORE — surfaces non-obvious cross-layer patterns (e.g. high
+               Conviction diverging from falling Probability)
+  5. Generate the final natural-language perception analysis
 
 When the model is not yet loaded:
-  - Steps 3 and 4 are skipped (return empty/[])
-  - Step 5 returns a "model not loaded" message with the raw layer data
-    so the caller can display something meaningful in the UI
+  - Steps 3 and 4 are skipped
+  - Step 5 returns the raw Perception Index data so the UI still has
+    something meaningful to display
 
-The model improves with every training run. The training pipeline
-(app/training/) uses Claude to generate gold-standard labels, then
-fine-tunes this local model on them.
+IntuOne reads resonance, not correctness. It translates the Perception
+Index into language — interpreting what the belief topology means, not
+forecasting what will happen. The model improves with every training run.
 """
 import logging
 from typing import Any
@@ -172,12 +174,13 @@ async def run_intuone(
     extra_context: str | None = None,
 ) -> dict[str, Any]:
     """
-    End-to-end inference: signals → layer scores → think → explore → briefing.
+    End-to-end inference: signals → Perception Index → think → explore → analysis.
 
-    Everything runs through the local fine-tuned model.
-    Returns structured metadata + the briefing text.
+    All five perception layers score simultaneously. IntuOne then interprets
+    the resulting Perception Index into natural-language output.
+    Returns structured layer readings + the perception analysis text.
     """
-    # 1. Score all five layers
+    # 1. Score all five perception layers simultaneously
     layer_scores: dict[str, Any] = {}
     for layer in PRIMARY_LAYERS:
         layer_sigs = [s for s in signals if s.layer == layer.layer_name]
@@ -198,7 +201,7 @@ async def run_intuone(
         user_message=user_message,
     )
 
-    # 3 & 4. THINK + EXPLORE — model reasons through signals privately
+    # 3 & 4. THINK + EXPLORE — IntuOne reasons through the Perception Index
     # (both are no-ops if the model isn't loaded yet)
     memory_context = extra_context or ""
     thinking = think(
@@ -213,7 +216,7 @@ async def run_intuone(
         thinking=thinking,
     )
 
-    # 5. Build full context: memory/history + thinking + signals
+    # 5. Build full context: memory/history + thinking + layer readings
     parts: list[str] = []
     if extra_context:
         parts.append(extra_context.rstrip())
@@ -222,7 +225,7 @@ async def run_intuone(
     parts.append(signal_context)
     full_context = "\n\n".join(parts)
 
-    # 6. Generate briefing — local model only
+    # 6. Generate perception analysis — local IntuOne model only
     if is_model_loaded():
         briefing = generate_briefing_local(full_context)
         model_used = "intuone_local"

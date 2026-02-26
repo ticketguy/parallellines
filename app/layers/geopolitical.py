@@ -6,12 +6,15 @@ from app.schemas.signal import SignalRead
 
 class GeopoliticalLayer(LayerBase):
     """
-    Scores geopolitical / institutional signals (government statements,
-    policy moves, regulatory filings, etc.).
+    Shadow Layer — "What unspoken forces are driving the belief?"
 
-    Stub — returns 0/0 until a geopolitical submind is wired up.
-    When live: score will reflect directional bias from official
-    statements and policy actions affecting the topic.
+    Captures institutional, political, and structural pressures that shape
+    belief indirectly — through policy signals, regulatory posture, and
+    official statements. Shadow forces often move before they are visible
+    in price or sentiment. Stub until a shadow submind is wired up.
+
+    Signal input: processed_data["direction_score"] in range -1.0 to +1.0,
+    where +1 = institutional tailwind, -1 = institutional headwind.
     """
 
     layer_name = LayerType.GEOPOLITICAL

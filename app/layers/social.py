@@ -6,11 +6,14 @@ from app.schemas.signal import SignalRead
 
 class SocialLayer(LayerBase):
     """
-    Scores social media signals (Twitter/X, Reddit, etc.).
+    Echo Layer — "How is belief socially amplified?"
 
-    Stub — returns 0/0 until a social submind is wired up.
-    When live: score will be derived from engagement-weighted
-    sentiment of posts mentioning topic entities.
+    Measures repetition, reinforcement, and contagion across social platforms.
+    Echo is distinct from conviction: a belief can spread widely without being
+    deeply held. Stub until a social submind is wired up.
+
+    Signal input: processed_data["sentiment_score"] in range -1.0 to +1.0,
+    weighted by signal_strength (engagement/reach proxy).
     """
 
     layer_name = LayerType.SOCIAL
