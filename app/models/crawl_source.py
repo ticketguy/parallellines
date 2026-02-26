@@ -19,8 +19,10 @@ class CrawlSource(Base):
     )
     label: Mapped[str] = mapped_column(String(255))
     url: Mapped[str] = mapped_column(Text, unique=True)
-    # Which IntuOne layer this source feeds
-    layer: Mapped[str] = mapped_column(String(50), default="news")
+    # Perception layer this source feeds (e.g. "memory", "echo")
+    layer: Mapped[str] = mapped_column(String(50), default="memory")
+    # World layer / data domain (free-form, e.g. "news", "social", "crypto")
+    domain: Mapped[str | None] = mapped_column(String(100), nullable=True)
     topic_tags: Mapped[list | None] = mapped_column(ARRAY(String), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 

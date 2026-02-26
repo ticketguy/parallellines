@@ -53,6 +53,7 @@ async def _upsert_signal(db, raw: RawSignal) -> bool:
     signal = Signal(
         source=raw["source"],
         layer=raw["layer"],
+        domain=raw.get("domain"),
         topic_tags=raw.get("topic_tags", []),
         signal_strength=raw.get("signal_strength"),
         raw_data=raw.get("raw_data", {}),

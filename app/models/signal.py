@@ -18,8 +18,11 @@ class Signal(Base):
     )
     # e.g. "polymarket", "twitter", "reuters", "reddit"
     source: Mapped[str] = mapped_column(String(100), index=True)
-    # LayerType value — which of the 6 layers this signal belongs to
+    # Perception layer — which of the 6 core layers this signal feeds
     layer: Mapped[str] = mapped_column(String(50), index=True)
+    # World layer — free-form domain string e.g. "market", "news", "social",
+    # "crypto", "politics". No enum constraint so new domains need no migration.
+    domain: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
     raw_data: Mapped[dict] = mapped_column(JSONB)
     processed_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

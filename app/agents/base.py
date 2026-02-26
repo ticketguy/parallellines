@@ -13,7 +13,10 @@ class SubmindBase(ABC):
     """
 
     name: str       # e.g. "polymarket", "twitter"
-    layer: str      # LayerType value — which layer this submind feeds
+    layer: str      # LayerType value — which perception layer this submind feeds
+    domain: str     # World layer — free-form domain string, e.g. "market", "social",
+                    # "news", "geopolitical", "crypto", "politics". No enum — new
+                    # domains require no code changes.
 
     @abstractmethod
     async def fetch(self) -> list[SignalCreate]:

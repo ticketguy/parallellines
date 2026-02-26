@@ -110,6 +110,7 @@ class WebCrawlerConnector(BaseConnector):
         snippet = _extract_sentences(text)
         sentiment = _rough_sentiment(snippet)
         layer = source.get("layer", LayerType.MEMORY)
+        domain = source.get("domain")  # free-form, e.g. "news", "social", "crypto"
         topic_tags = source.get("topic_tags", [])
         label = source.get("label", url)
 
@@ -120,6 +121,7 @@ class WebCrawlerConnector(BaseConnector):
         return RawSignal(
             source="web_crawler",
             layer=layer,
+            domain=domain,
             topic_tags=topic_tags,
             signal_strength=abs(sentiment),
             raw_data={"url": url, "label": label, "text_length": len(text)},

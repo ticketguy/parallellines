@@ -17,7 +17,10 @@ class RawSignal(TypedDict, total=False):
     """Normalised signal dict produced by any connector."""
     # Required
     source: str           # e.g. "polymarket", "reddit", "web_crawler"
-    layer: str            # LayerType value
+    layer: str            # LayerType value — which perception layer this feeds
+    domain: str           # World layer — free-form domain string, e.g. "market",
+                          # "news", "social", "geopolitical", "crypto", "politics".
+                          # No enum — new domains require no code changes.
     topic_tags: list[str] # topics this signal relates to
 
     # Scoring hint (0.0–1.0 signal strength; set by connector if known)
@@ -39,12 +42,15 @@ class BaseConnector(ABC):
 
     Class attributes:
         name   — unique slug, e.g. "polymarket"
-        layer  — which IntuOne layer this connector feeds
+        layer  — which perception layer this connector feeds (LayerType value)
+        domain — world layer / data domain, free-form string e.g. "market",
+                 "news", "social". New domains need no code changes.
         enabled — set to False to skip without removing
     """
 
     name: str
     layer: str
+    domain: str = ""
     enabled: bool = True
 
     @abstractmethod

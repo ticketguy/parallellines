@@ -19,6 +19,7 @@ class PolymarketSubmind(SubmindBase):
 
     name = "polymarket"
     layer = LayerType.PROBABILITY
+    domain = "market"
 
     async def fetch(self) -> list[SignalCreate]:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -54,6 +55,7 @@ class PolymarketSubmind(SubmindBase):
         return SignalCreate(
             source=self.name,
             layer=self.layer,
+            domain=self.domain,
             raw_data=market,
             processed_data={
                 "question": market.get("question"),

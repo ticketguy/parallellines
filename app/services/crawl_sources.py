@@ -17,6 +17,7 @@ async def load_active_sources() -> list[dict]:
                 "url": r.url,
                 "label": r.label,
                 "layer": r.layer,
+                "domain": r.domain,  # free-form world layer, e.g. "news", "crypto"
                 "topic_tags": r.topic_tags or [],
             }
             for r in rows

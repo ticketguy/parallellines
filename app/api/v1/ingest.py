@@ -27,7 +27,8 @@ router = APIRouter(prefix="/ingest", tags=["ingestion"])
 class CrawlSourceIn(BaseModel):
     label: str
     url: str
-    layer: str = "memory"
+    layer: str = "memory"   # perception layer this source feeds
+    domain: str | None = None  # world layer, e.g. "news", "social", "crypto"
     topic_tags: list[str] = []
 
 
@@ -48,7 +49,7 @@ async def ingestion_status():
     return {
         "stats": stats,
         "connectors": [
-            {"name": name, "layer": cls.layer, "enabled": cls.enabled}
+            {"name": name, "layer": cls.layer, "domain": getattr(cls, "domain", ""), "enabled": cls.enabled}
             for name, cls in registry.items()
         ],
     }
@@ -73,6 +74,7 @@ async def add_source(payload: CrawlSourceIn, db: AsyncSession = Depends(get_db))
         label=payload.label,
         url=str(payload.url),
         layer=payload.layer,
+        domain=payload.domain,
         topic_tags=payload.topic_tags or [],
     )
     db.add(source)
