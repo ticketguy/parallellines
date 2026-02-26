@@ -4,7 +4,7 @@ from app.schemas.layer import LayerScoreCreate
 from app.schemas.signal import SignalRead
 
 
-class GeopoliticalLayer(LayerBase):
+class ShadowLayer(LayerBase):
     """
     Shadow Layer — "What unspoken forces are driving the belief?"
 
@@ -17,7 +17,7 @@ class GeopoliticalLayer(LayerBase):
     where +1 = institutional tailwind, -1 = institutional headwind.
     """
 
-    layer_name = LayerType.GEOPOLITICAL
+    layer_name = LayerType.SHADOW
 
     async def score(
         self,

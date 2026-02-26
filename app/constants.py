@@ -2,11 +2,11 @@ from enum import StrEnum
 
 
 class LayerType(StrEnum):
-    MARKET = "market"
-    SOCIAL = "social"
-    NEWS = "news"
-    SENTIMENT = "sentiment"
-    GEOPOLITICAL = "geopolitical"
+    PROBABILITY = "probability"
+    CONVICTION = "conviction"
+    ECHO = "echo"
+    MEMORY = "memory"
+    SHADOW = "shadow"
     SYNTHESIS = "synthesis"
 
 

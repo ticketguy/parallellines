@@ -81,7 +81,7 @@ class WebCrawlerConnector(BaseConnector):
     """
 
     name = "web_crawler"
-    layer = LayerType.NEWS  # default; overridden per-source
+    layer = LayerType.MEMORY  # default; overridden per-source
     enabled = True
 
     def __init__(self, sources: list[dict] | None = None):
@@ -109,7 +109,7 @@ class WebCrawlerConnector(BaseConnector):
         text = _clean_html(html)
         snippet = _extract_sentences(text)
         sentiment = _rough_sentiment(snippet)
-        layer = source.get("layer", LayerType.NEWS)
+        layer = source.get("layer", LayerType.MEMORY)
         topic_tags = source.get("topic_tags", [])
         label = source.get("label", url)
 

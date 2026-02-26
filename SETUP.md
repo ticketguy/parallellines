@@ -3,7 +3,7 @@
 This guide covers four paths, in order of complexity:
 
 1. **[Run the server](#1-run-the-server-no-gpu-needed)** — UI, API, and signal ingestion. No GPU, no model weights required.
-2. **[Activate the other layers](#2-activate-the-other-layers)** — Wire up news, sentiment, social, and geopolitical data sources.
+2. **[Activate the other layers](#2-activate-the-other-layers)** — Wire up Memory, Conviction, Echo, and Shadow data sources.
 3. **[Generate training data](#3-generate-training-data)** — Use Claude to label live signals.
 4. **[Train and run IntuOne](#4-train-intuone)** — Fine-tune Llama 3.1 8B on your data, serve it locally.
 
@@ -125,7 +125,7 @@ curl -X POST http://localhost:8000/api/v1/ingest/sources \
   -d '{
     "url": "https://reuters.com/world",
     "topic_tags": ["geopolitics", "finance"],
-    "layer": "news",
+    "layer": "memory",
     "label": "Reuters World"
   }'
 
@@ -135,7 +135,7 @@ curl -X POST http://localhost:8000/api/v1/ingest/sources \
   -d '{
     "url": "https://coindesk.com",
     "topic_tags": ["bitcoin", "crypto"],
-    "layer": "news",
+    "layer": "memory",
     "label": "CoinDesk"
   }'
 ```
@@ -163,7 +163,7 @@ curl -X POST http://localhost:8000/api/v1/ingest/sources \
 
 ### Social layer — write a Twitter submind
 
-The social layer scorer is fully implemented. It needs a submind that fetches from Twitter/X or Reddit and produces signals with a `sentiment_score` field. The Twitter bearer token placeholder is already in `.env.example`:
+The Echo layer scorer is fully implemented. It needs a submind that fetches from Twitter/X or Reddit and produces signals with a `sentiment_score` field. The Twitter bearer token placeholder is already in `.env.example`:
 
 ```dotenv
 # .env
@@ -179,7 +179,7 @@ curl -X POST http://localhost:8000/api/v1/signals \
   -H "Content-Type: application/json" \
   -d '{
     "source": "manual",
-    "layer": "social",
+    "layer": "echo",
     "topic_tags": ["bitcoin"],
     "signal_strength": 0.8,
     "processed_data": {"sentiment_score": 0.6},
@@ -189,7 +189,7 @@ curl -X POST http://localhost:8000/api/v1/signals \
 
 ### Geopolitical layer — write a policy submind
 
-The geopolitical layer reads a `direction_score` field (range -1.0 to +1.0). It needs a submind that parses government statements, regulatory filings, or similar sources. Feed it manually the same way as social above, using `"layer": "geopolitical"` and `"direction_score"` in `processed_data`.
+The Shadow layer reads a `direction_score` field (range -1.0 to +1.0). It needs a submind that parses government statements, regulatory filings, or similar sources. Feed it manually the same way as social above, using `"layer": "shadow"` and `"direction_score"` in `processed_data`.
 
 ### Writing a new submind
 
@@ -229,11 +229,11 @@ The ingestion loop calls `fetch()` on every registered submind on each cycle. No
 
 | Target layer | Required field in `processed_data` | Range |
 |---|---|---|
-| market | `yes_price` | 0.0 – 1.0 |
-| news | `sentiment_score` | -1.0 – +1.0 |
-| sentiment | `sentiment_score` | -1.0 – +1.0 |
-| social | `sentiment_score` | -1.0 – +1.0 |
-| geopolitical | `direction_score` | -1.0 – +1.0 |
+| probability | `yes_price` | 0.0 – 1.0 |
+| memory | `sentiment_score` | -1.0 – +1.0 |
+| conviction | `sentiment_score` | -1.0 – +1.0 |
+| echo | `sentiment_score` | -1.0 – +1.0 |
+| shadow | `direction_score` | -1.0 – +1.0 |
 
 ### Check layer scores
 
@@ -243,7 +243,7 @@ After ingestion, query the current score for any layer and topic:
 GET /api/v1/layers/{layer_name}?topic=bitcoin
 ```
 
-Where `layer_name` is one of: `market`, `news`, `sentiment`, `social`, `geopolitical`, `synthesis`.
+Where `layer_name` is one of: `probability`, `conviction`, `echo`, `memory`, `shadow`, `synthesis`.
 
 ---
 

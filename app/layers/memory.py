@@ -4,18 +4,20 @@ from app.schemas.layer import LayerScoreCreate
 from app.schemas.signal import SignalRead
 
 
-class MarketLayer(LayerBase):
+class MemoryLayer(LayerBase):
     """
-    Probability Layer — "What does the crowd price as likely?"
+    Memory Layer — "How is belief preserved after contradiction?"
 
-    Reads prediction market yes_price as a proxy for collective probability
-    assignment. Score is the weighted average of (yes_price - 0.5) * 2,
-    mapping [0, 1] → [-1, +1], weighted by signal_strength (volume-derived).
+    Tracks narrative persistence in media coverage: how a belief continues
+    to circulate in headlines even after data has moved against it. High
+    Memory with falling Probability signals a belief that is refusing to die.
+    Stub until a news submind is wired up.
 
-    A yes_price of 0.8 → +0.6; yes_price of 0.3 → -0.4.
+    Signal input: processed_data["sentiment_score"] in range -1.0 to +1.0,
+    weighted by signal_strength (source credibility / coverage volume proxy).
     """
 
-    layer_name = LayerType.MARKET
+    layer_name = LayerType.MEMORY
 
     async def score(
         self,
@@ -31,13 +33,11 @@ class MarketLayer(LayerBase):
 
         for sig in signals:
             pd = sig.processed_data or {}
-            yes_price = pd.get("yes_price")
-            if yes_price is None:
+            sentiment = pd.get("sentiment_score")
+            if sentiment is None:
                 continue
-            # Maps [0, 1] → [-1, +1]
-            directional = (float(yes_price) - 0.5) * 2.0
             weight = float(sig.signal_strength or 0.5)
-            weighted_scores.append(directional * weight)
+            weighted_scores.append(float(sentiment) * weight)
             weights.append(weight)
 
         if not weights:

@@ -85,7 +85,7 @@ def _market_to_signal(market: dict) -> RawSignal | None:
 
         return RawSignal(
             source="polymarket",
-            layer=LayerType.MARKET,
+            layer=LayerType.PROBABILITY,
             topic_tags=topics,
             signal_strength=round(signal_strength, 4),
             raw_data={
@@ -122,7 +122,7 @@ class PolymarketConnector(BaseConnector):
     """
 
     name = "polymarket"
-    layer = LayerType.MARKET
+    layer = LayerType.PROBABILITY
     enabled = True
 
     def __init__(self, gamma_url: str = _GAMMA_URL, limit: int = _FETCH_LIMIT):

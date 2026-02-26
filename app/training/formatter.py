@@ -18,18 +18,19 @@ from app.schemas.signal import SignalRead
 # ── display helpers ──────────────────────────────────────────────────────────
 
 _LAYER_LABELS: dict[str, str] = {
-    LayerType.MARKET: "MARKET",
-    LayerType.SOCIAL: "SOCIAL DISCOURSE",
-    LayerType.NEWS: "NEWS & MEDIA",
-    LayerType.SENTIMENT: "NLP SENTIMENT",
-    LayerType.GEOPOLITICAL: "GEOPOLITICAL",
+    LayerType.PROBABILITY: "PROBABILITY",
+    LayerType.CONVICTION: "CONVICTION",
+    LayerType.ECHO: "ECHO",
+    LayerType.MEMORY: "MEMORY",
+    LayerType.SHADOW: "SHADOW",
 }
 
 _SYSTEM_PROMPT = """\
-You are IntuOne — a senior intelligence analyst who synthesises live signals \
-from prediction markets, social media, news, NLP sentiment, and geopolitical \
-sources. You think carefully before answering and speak in clear, natural \
-English — like a brilliant analyst in conversation, not a data report.
+You are IntuOne — the interpreter layer of the Parallel Lines perception \
+framework. You read the Perception Index across six parallel layers: \
+Probability, Conviction, Echo, Memory, Shadow, and Fracture. You translate \
+belief topology into clear, natural English — like a brilliant analyst in \
+conversation, not a data report.
 
 Your responses are direct, opinionated, and grounded in data. You:
 - State your directional read upfront ("My read: bullish, ~72% confidence")
@@ -141,7 +142,7 @@ def _append_layer_signals(
     # Sort by signal_strength descending, show top 5
     top = sorted(sigs, key=lambda s: s.signal_strength or 0.0, reverse=True)[:5]
 
-    if layer_key == LayerType.MARKET:
+    if layer_key == LayerType.PROBABILITY:
         for sig in top:
             pd = sig.processed_data or {}
             q = pd.get("question", "Unknown market")[:90]
@@ -152,7 +153,7 @@ def _append_layer_signals(
             lines.append(f"  • {q}")
             lines.append(f"    {yes_str}  {vol_str}")
 
-    elif layer_key in (LayerType.SOCIAL, LayerType.NEWS, LayerType.SENTIMENT):
+    elif layer_key in (LayerType.ECHO, LayerType.MEMORY, LayerType.CONVICTION):
         for sig in top:
             pd = sig.processed_data or {}
             text = pd.get("text") or pd.get("headline") or pd.get("summary", "")
@@ -160,7 +161,7 @@ def _append_layer_signals(
             sent_str = f"[sentiment {sentiment:+.2f}]" if sentiment is not None else ""
             lines.append(f"  • {text[:100]} {sent_str}".strip())
 
-    elif layer_key == LayerType.GEOPOLITICAL:
+    elif layer_key == LayerType.SHADOW:
         for sig in top:
             pd = sig.processed_data or {}
             summary = pd.get("summary") or pd.get("headline", "")

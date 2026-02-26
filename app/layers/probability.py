@@ -4,19 +4,18 @@ from app.schemas.layer import LayerScoreCreate
 from app.schemas.signal import SignalRead
 
 
-class SentimentLayer(LayerBase):
+class ProbabilityLayer(LayerBase):
     """
-    Conviction Layer — "How deeply is the belief held?"
+    Probability Layer — "What does the crowd price as likely?"
 
-    Measures emotional intensity and depth of commitment in expressed belief,
-    not just positive/negative polarity. High conviction can exist on both
-    sides of a probability. Stub until a conviction submind is wired up.
+    Reads prediction market yes_price as a proxy for collective probability
+    assignment. Score is the weighted average of (yes_price - 0.5) * 2,
+    mapping [0, 1] → [-1, +1], weighted by signal_strength (volume-derived).
 
-    Signal input: processed_data["sentiment_score"] in range -1.0 to +1.0,
-    where magnitude reflects depth of conviction, sign reflects direction.
+    A yes_price of 0.8 → +0.6; yes_price of 0.3 → -0.4.
     """
 
-    layer_name = LayerType.SENTIMENT
+    layer_name = LayerType.PROBABILITY
 
     async def score(
         self,
@@ -32,11 +31,13 @@ class SentimentLayer(LayerBase):
 
         for sig in signals:
             pd = sig.processed_data or {}
-            sentiment = pd.get("sentiment_score")
-            if sentiment is None:
+            yes_price = pd.get("yes_price")
+            if yes_price is None:
                 continue
+            # Maps [0, 1] → [-1, +1]
+            directional = (float(yes_price) - 0.5) * 2.0
             weight = float(sig.signal_strength or 0.5)
-            weighted_scores.append(float(sentiment) * weight)
+            weighted_scores.append(directional * weight)
             weights.append(weight)
 
         if not weights:

@@ -4,20 +4,19 @@ from app.schemas.layer import LayerScoreCreate
 from app.schemas.signal import SignalRead
 
 
-class NewsLayer(LayerBase):
+class ConvictionLayer(LayerBase):
     """
-    Memory Layer — "How is belief preserved after contradiction?"
+    Conviction Layer — "How deeply is the belief held?"
 
-    Tracks narrative persistence in media coverage: how a belief continues
-    to circulate in headlines even after data has moved against it. High
-    Memory with falling Probability signals a belief that is refusing to die.
-    Stub until a news submind is wired up.
+    Measures emotional intensity and depth of commitment in expressed belief,
+    not just positive/negative polarity. High conviction can exist on both
+    sides of a probability. Stub until a conviction submind is wired up.
 
     Signal input: processed_data["sentiment_score"] in range -1.0 to +1.0,
-    weighted by signal_strength (source credibility / coverage volume proxy).
+    where magnitude reflects depth of conviction, sign reflects direction.
     """
 
-    layer_name = LayerType.NEWS
+    layer_name = LayerType.CONVICTION
 
     async def score(
         self,

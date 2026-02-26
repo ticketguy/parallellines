@@ -4,7 +4,7 @@ from app.schemas.layer import LayerScoreCreate
 from app.schemas.signal import SignalRead
 
 
-class SocialLayer(LayerBase):
+class EchoLayer(LayerBase):
     """
     Echo Layer — "How is belief socially amplified?"
 
@@ -16,7 +16,7 @@ class SocialLayer(LayerBase):
     weighted by signal_strength (engagement/reach proxy).
     """
 
-    layer_name = LayerType.SOCIAL
+    layer_name = LayerType.ECHO
 
     async def score(
         self,

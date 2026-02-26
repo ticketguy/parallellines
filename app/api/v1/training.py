@@ -96,7 +96,7 @@ async def generate_from_top_markets(
     """
     result = await db.execute(
         select(Signal.topic_tags)
-        .where(Signal.layer == "market")
+        .where(Signal.layer == "probability")
         .where(Signal.topic_tags != None)  # noqa: E711
         .order_by(Signal.created_at.desc())
         .limit(200)

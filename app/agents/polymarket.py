@@ -11,14 +11,14 @@ from app.schemas.signal import SignalCreate
 class PolymarketSubmind(SubmindBase):
     """
     Fetches active prediction markets from Polymarket's Gamma API and
-    converts them into market-layer signals.
+    converts them into Probability layer signals.
 
     Signal strength is derived from 24h volume (log-normalised).
     Confidence is fixed at 0.9 — Polymarket CLOB prices are high-quality.
     """
 
     name = "polymarket"
-    layer = LayerType.MARKET
+    layer = LayerType.PROBABILITY
 
     async def fetch(self) -> list[SignalCreate]:
         async with httpx.AsyncClient(timeout=30) as client:

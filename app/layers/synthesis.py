@@ -6,11 +6,11 @@ from app.schemas.signal import SignalRead
 # Relative importance of each layer in the final synthesis.
 # Weights sum to 1.0. Adjust as you calibrate the model.
 LAYER_WEIGHTS: dict[str, float] = {
-    LayerType.MARKET: 0.35,
-    LayerType.SOCIAL: 0.20,
-    LayerType.NEWS: 0.20,
-    LayerType.SENTIMENT: 0.15,
-    LayerType.GEOPOLITICAL: 0.10,
+    LayerType.PROBABILITY: 0.35,
+    LayerType.ECHO: 0.20,
+    LayerType.MEMORY: 0.20,
+    LayerType.CONVICTION: 0.15,
+    LayerType.SHADOW: 0.10,
 }
 
 

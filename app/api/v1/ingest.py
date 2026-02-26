@@ -27,7 +27,7 @@ router = APIRouter(prefix="/ingest", tags=["ingestion"])
 class CrawlSourceIn(BaseModel):
     label: str
     url: str
-    layer: str = "news"
+    layer: str = "memory"
     topic_tags: list[str] = []
 
 
