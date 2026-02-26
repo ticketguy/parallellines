@@ -180,11 +180,11 @@ async def run_intuone(
     the resulting Perception Index into natural-language output.
     Returns structured layer readings + the perception analysis text.
     """
-    # 1. Score all five perception layers simultaneously
+    # 1. Score all five perception layers simultaneously — every signal goes
+    #    through every layer; each layer extracts what it can from processed_data
     layer_scores: dict[str, Any] = {}
     for layer in PRIMARY_LAYERS:
-        layer_sigs = [s for s in signals if s.layer == layer.layer_name]
-        ls = await layer.score(layer_sigs, topic, time_window)
+        ls = await layer.score(signals, topic, time_window)
         layer_scores[layer.layer_name] = {
             "score": ls.score,
             "confidence": ls.confidence,

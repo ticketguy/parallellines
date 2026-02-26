@@ -1,19 +1,19 @@
-from app.layers.geopolitical import GeopoliticalLayer
-from app.layers.market import MarketLayer
-from app.layers.news import NewsLayer
-from app.layers.sentiment import SentimentLayer
-from app.layers.social import SocialLayer
+from app.layers.conviction import ConvictionLayer
+from app.layers.echo import EchoLayer
+from app.layers.memory import MemoryLayer
+from app.layers.probability import ProbabilityLayer
+from app.layers.shadow import ShadowLayer
 from app.layers.synthesis import SynthesisLayer
 from app.schemas.report import IntuOneReportCreate
 from app.schemas.signal import SignalRead
 
-# Primary layer processors, in order of precedence
+# Primary layer processors — all five lenses run over every signal
 PRIMARY_LAYERS = [
-    MarketLayer(),
-    SocialLayer(),
-    NewsLayer(),
-    SentimentLayer(),
-    GeopoliticalLayer(),
+    ProbabilityLayer(),
+    ConvictionLayer(),
+    EchoLayer(),
+    MemoryLayer(),
+    ShadowLayer(),
 ]
 
 _synthesis = SynthesisLayer()
@@ -29,16 +29,14 @@ async def generate_report(
     the results into an IntuOneReport.
 
     Steps:
-    1. Partition signals by layer.
-    2. Score each layer independently.
+    1. Pass all signals through every layer independently.
     3. Synthesise: weighted confidence-adjusted aggregation.
     4. Return a report object ready to be persisted.
     """
     layer_scores: dict[str, dict] = {}
 
     for layer in PRIMARY_LAYERS:
-        layer_signals = [s for s in signals if s.layer == layer.layer_name]
-        ls = await layer.score(layer_signals, topic, time_window)
+        ls = await layer.score(signals, topic, time_window)
         layer_scores[layer.layer_name] = {
             "score": ls.score,
             "confidence": ls.confidence,
