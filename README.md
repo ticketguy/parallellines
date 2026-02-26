@@ -17,9 +17,10 @@ Polymarket / Web
         ▼
  ┌──────────────────────────────────────────────────┐
  │                  Six Layers                       │
- │  market · social · news · sentiment ·            │
- │  geopolitical · synthesis                        │
+ │  market ✓  · news ✓  · sentiment ✓              │
+ │  social ~  · geopolitical ~  · synthesis ✓      │
  └──────────────────────┬───────────────────────────┘
+      ✓ live   ~ stub (connector not yet wired)
                         │
                         ▼
               ┌─────────────────┐

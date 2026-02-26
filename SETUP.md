@@ -1,10 +1,11 @@
 # Setup Guide
 
-This guide covers three paths, in order of complexity:
+This guide covers four paths, in order of complexity:
 
 1. **[Run the server](#1-run-the-server-no-gpu-needed)** — UI, API, and signal ingestion. No GPU, no model weights required.
-2. **[Generate training data](#2-generate-training-data)** — Use Claude to label live signals.
-3. **[Train and run IntuOne](#3-train-intuone)** — Fine-tune Llama 3.1 8B on your data, serve it locally.
+2. **[Activate the other layers](#2-activate-the-other-layers)** — Wire up news, sentiment, social, and geopolitical data sources.
+3. **[Generate training data](#3-generate-training-data)** — Use Claude to label live signals.
+4. **[Train and run IntuOne](#4-train-intuone)** — Fine-tune Llama 3.1 8B on your data, serve it locally.
 
 ---
 
@@ -98,7 +99,110 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ---
 
-## 2. Generate training data
+## 2. Activate the other layers
+
+Out of the box only the **Market** layer has live data (Polymarket). Here is the status of all six layers and how to activate each one.
+
+### Layer status overview
+
+| Layer | Status | What feeds it |
+|-------|--------|---------------|
+| Market | Live | Polymarket connector (auto-polls every 5 min) |
+| News | Ready — needs sources | Web crawler connector |
+| Sentiment | Ready — needs sources | Web crawler connector (same signals) |
+| Social | Stub | Twitter/Reddit connector (not yet wired) |
+| Geopolitical | Stub | Custom connector needed |
+| Synthesis | Live | Aggregates whichever layers have scores |
+
+### News and sentiment layers — add crawl sources
+
+The web crawler connector is already running. It just needs URLs to fetch. Add any news page, RSS feed, or blog:
+
+```bash
+# Add a news source
+curl -X POST http://localhost:8000/api/v1/ingest/sources \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://reuters.com/world",
+    "topic_tags": ["geopolitics", "finance"],
+    "layer": "news",
+    "label": "Reuters World"
+  }'
+
+# Add another for a specific topic
+curl -X POST http://localhost:8000/api/v1/ingest/sources \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://coindesk.com",
+    "topic_tags": ["bitcoin", "crypto"],
+    "layer": "news",
+    "label": "CoinDesk"
+  }'
+```
+
+Sources are stored in the database and loaded automatically on the next ingestion cycle (every 5 minutes). Trigger an immediate pull with:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingest/run
+```
+
+The same signals flow into both the **News** layer (headline/volume scoring) and the **Sentiment** layer (NLP sentiment scoring), so both activate with the same sources.
+
+To route a source to the sentiment layer specifically:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/ingest/sources \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com/opinion",
+    "topic_tags": ["politics"],
+    "layer": "sentiment",
+    "label": "Opinion feed"
+  }'
+```
+
+### Social layer — Twitter / Reddit
+
+The social layer scorer is implemented and ready. It needs a connector that produces signals with a `sentiment_score` field. Two future connectors are planned (keys already in `.env.example`):
+
+```dotenv
+# .env — uncomment when you wire up the connector
+# TWITTER_BEARER_TOKEN=your-bearer-token-here
+# NEWS_API_KEY=your-newsapi-key-here
+```
+
+Until a social connector is built, you can feed it manually via the signals API:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/signals \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "manual",
+    "layer": "social",
+    "topic_tags": ["bitcoin"],
+    "signal_strength": 0.8,
+    "processed_data": {"sentiment_score": 0.6},
+    "confidence": 0.7
+  }'
+```
+
+### Geopolitical layer
+
+The geopolitical layer reads a `direction_score` field (range -1.0 to +1.0) from signals. It is a stub pending a connector that parses government statements, regulatory filings, or similar sources. You can feed it manually with the same approach as social above, using `"layer": "geopolitical"` and a `direction_score` in `processed_data`.
+
+### Check layer scores
+
+After ingestion, query the current score for any layer and topic:
+
+```bash
+GET /api/v1/layers/{layer_name}?topic=bitcoin
+```
+
+Where `layer_name` is one of: `market`, `news`, `sentiment`, `social`, `geopolitical`, `synthesis`.
+
+---
+
+## 3. Generate training data
 
 Training data generation uses Claude to produce gold-standard briefings from live signals. You need:
 
@@ -144,7 +248,7 @@ curl http://localhost:8000/api/v1/training/export --output data/intuone-v1.zip
 
 ---
 
-## 3. Train IntuOne
+## 4. Train IntuOne
 
 Training requires a GPU machine. If you do not have a local GPU, see [Cloud GPU options](#cloud-gpu-options) below.
 
