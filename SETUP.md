@@ -161,17 +161,18 @@ curl -X POST http://localhost:8000/api/v1/ingest/sources \
   }'
 ```
 
-### Social layer — Twitter / Reddit
+### Social layer — write a Twitter submind
 
-The social layer scorer is implemented and ready. It needs a connector that produces signals with a `sentiment_score` field. Two future connectors are planned (keys already in `.env.example`):
+The social layer scorer is fully implemented. It needs a submind that fetches from Twitter/X or Reddit and produces signals with a `sentiment_score` field. The Twitter bearer token placeholder is already in `.env.example`:
 
 ```dotenv
-# .env — uncomment when you wire up the connector
-# TWITTER_BEARER_TOKEN=your-bearer-token-here
-# NEWS_API_KEY=your-newsapi-key-here
+# .env
+TWITTER_BEARER_TOKEN=your-bearer-token-here
 ```
 
-Until a social connector is built, you can feed it manually via the signals API:
+To wire it up, create `app/agents/twitter.py` subclassing `SubmindBase` (see [Writing a new submind](#writing-a-new-submind) below), then register it in `app/connectors/registry.py`.
+
+Until then, feed the social layer manually:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/signals \
@@ -186,9 +187,53 @@ curl -X POST http://localhost:8000/api/v1/signals \
   }'
 ```
 
-### Geopolitical layer
+### Geopolitical layer — write a policy submind
 
-The geopolitical layer reads a `direction_score` field (range -1.0 to +1.0) from signals. It is a stub pending a connector that parses government statements, regulatory filings, or similar sources. You can feed it manually with the same approach as social above, using `"layer": "geopolitical"` and a `direction_score` in `processed_data`.
+The geopolitical layer reads a `direction_score` field (range -1.0 to +1.0). It needs a submind that parses government statements, regulatory filings, or similar sources. Feed it manually the same way as social above, using `"layer": "geopolitical"` and `"direction_score"` in `processed_data`.
+
+### Writing a new submind
+
+Every submind inherits from `SubmindBase` (`app/agents/base.py`). The interface is two methods:
+
+```python
+# app/agents/twitter.py
+from app.agents.base import SubmindBase
+from app.constants import LayerType
+from app.schemas.signal import SignalCreate
+
+class TwitterSubmind(SubmindBase):
+    name = "twitter"
+    layer = LayerType.SOCIAL
+
+    async def fetch(self) -> list[SignalCreate]:
+        # Call the Twitter API, return normalised SignalCreate objects.
+        # Set processed_data={"sentiment_score": float} so the social
+        # layer scorer can read it.
+        ...
+
+    async def process(self, raw: dict) -> dict:
+        # Translate one raw tweet dict into a processed_data dict.
+        ...
+```
+
+Then register it so the ingestion loop picks it up:
+
+```python
+# app/connectors/registry.py — add to the submind list
+from app.agents.twitter import TwitterSubmind
+```
+
+The ingestion loop calls `fetch()` on every registered submind on each cycle. No other changes needed.
+
+**Signal schema requirements by layer:**
+
+| Target layer | Required field in `processed_data` | Range |
+|---|---|---|
+| market | `yes_price` | 0.0 – 1.0 |
+| news | `sentiment_score` | -1.0 – +1.0 |
+| sentiment | `sentiment_score` | -1.0 – +1.0 |
+| social | `sentiment_score` | -1.0 – +1.0 |
+| geopolitical | `direction_score` | -1.0 – +1.0 |
 
 ### Check layer scores
 

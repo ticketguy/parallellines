@@ -1,38 +1,54 @@
 # ParallelLines — IntuOne Perception Engine
 
-Multi-layer internet signal analysis that produces real-time intelligence briefings on prediction markets. Raw signals from Polymarket are processed through six analytical layers and synthesised by a fine-tuned Llama 3.1 8B model (IntuOne).
+A perception engine built on two primary layers — **Submind** and **IntuOne** — that turns raw internet signals into real-time intelligence briefings on prediction markets.
 
 ---
 
-## How it works
+## Architecture
+
+The engine has two primary layers:
 
 ```
-Polymarket / Web
-      │
-      ▼
- ┌─────────────┐
- │  Connectors  │  pull market + page data
- └──────┬──────┘
-        │
-        ▼
- ┌──────────────────────────────────────────────────┐
- │                  Six Layers                       │
- │  market ✓  · news ✓  · sentiment ✓              │
- │  social ~  · geopolitical ~  · synthesis ✓      │
- └──────────────────────┬───────────────────────────┘
-      ✓ live   ~ stub (connector not yet wired)
-                        │
-                        ▼
-              ┌─────────────────┐
-              │    IntuOne LLM   │  fine-tuned Llama 3.1 8B (QLoRA)
-              └────────┬────────┘
-                       │
-           ┌───────────┼───────────┐
-           ▼           ▼           ▼
-        Chat UI    Dashboard    REST API
+External sources
+(Polymarket, Twitter, news sites, …)
+          │
+          ▼
+╔═════════════════════════════════════╗
+║          SUBMIND LAYER              ║  app/agents/
+║                                     ║
+║  PolymarketSubmind  ✓               ║  Each submind owns one data source.
+║  TwitterSubmind     ~  (planned)    ║  It fetches raw data and normalises
+║  NewsSubmind        ~  (planned)    ║  it into typed Signal objects.
+╚══════════════════╤══════════════════╝
+                   │  normalised signals
+                   ▼
+        ┌──────────────────────────┐
+        │   Signal processing      │  app/layers/
+        │   market · news ·        │  Six scorers reduce signals to
+        │   sentiment · social ·   │  numeric layer scores (-1 to +1).
+        │   geopolitical ·         │
+        │   synthesis              │
+        └──────────┬───────────────┘
+                   │  layer scores
+                   ▼
+╔═════════════════════════════════════╗
+║          INTUONE LAYER              ║  app/inference/
+║                                     ║
+║  Fine-tuned Llama 3.1 8B (QLoRA)   ║  Reads all layer scores and
+║  LoRA adapter trained on Claude-   ║  generates a structured
+║  labelled briefings                 ║  intelligence briefing.
+╚══════════════════╤══════════════════╝
+                   │
+       ┌───────────┼───────────┐
+       ▼           ▼           ▼
+    Chat UI    Dashboard    REST API
 ```
 
-IntuOne is trained with a teacher→student loop: Claude generates gold-standard briefings from live signals, and those examples fine-tune the local model via QLoRA so it runs entirely on your own hardware.
+**Submind layer** — each submind is an autonomous agent responsible for exactly one external source. It knows the source's API, normalises the data into the common `SignalCreate` schema, and assigns it to the correct analytical layer. Adding a new data source means writing a new submind.
+
+**IntuOne layer** — the fine-tuned local model. It receives a structured context of layer scores and signal excerpts and produces a briefing. It is trained via a teacher→student loop: Claude generates gold-standard briefings, and QLoRA fine-tuning bakes that reasoning into a model that runs entirely on your own hardware.
+
+The six signal-processing layers (market, news, sentiment, social, geopolitical, synthesis) sit between the two primary layers as a normalisation pipeline, not as top-level architecture.
 
 ---
 
@@ -66,12 +82,16 @@ The server runs immediately without a GPU. To enable the fine-tuned model, follo
 ```
 parallellines/
 ├── app/
-│   ├── api/v1/          # REST endpoints (chat, signals, markets, training, …)
-│   ├── connectors/      # Data sources (Polymarket, web crawler)
-│   ├── layers/          # Six analytical layers + synthesis
-│   ├── inference/       # Model loading & inference pipeline
+│   ├── agents/          # SUBMIND LAYER — one agent per data source
+│   │   ├── base.py      #   SubmindBase abstract class
+│   │   └── polymarket.py#   PolymarketSubmind (live)
+│   ├── connectors/      # Low-level HTTP fetchers (used by agents)
+│   ├── layers/          # Signal processing — market, news, sentiment,
+│   │                    #   social, geopolitical, synthesis scorers
+│   ├── inference/       # INTUONE LAYER — model loading & inference pipeline
 │   ├── training/        # Dataset formatter, generator (Claude), QLoRA trainer
 │   ├── memory/          # Extraction & retrieval
+│   ├── api/v1/          # REST endpoints (chat, signals, markets, training, …)
 │   ├── models/          # SQLAlchemy ORM models
 │   ├── schemas/         # Pydantic schemas
 │   ├── services/        # Business logic (ingestion, IntuOne service)
@@ -84,7 +104,7 @@ parallellines/
 ├── pyproject.toml
 ├── run.bat              # Windows launcher
 ├── run.sh               # Linux/macOS launcher
-└── SETUP.md             # Full setup guide (database, training, GPU)
+└── SETUP.md             # Full setup guide (database, subminds, training, GPU)
 ```
 
 ---
