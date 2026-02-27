@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from app.constants import LayerType
-from app.layers.synthesis import LAYER_WEIGHTS
 from app.schemas.signal import SignalRead
 
 # ── display helpers ──────────────────────────────────────────────────────────
@@ -27,8 +26,8 @@ _LAYER_LABELS: dict[str, str] = {
 
 _SYSTEM_PROMPT = """\
 You are IntuOne — the interpreter layer of the Parallel Lines perception \
-framework. You read the Perception Index across six parallel layers: \
-Probability, Conviction, Echo, Memory, Shadow, and Fracture. You translate \
+framework. You read the Perception Index across five parallel layers: \
+Probability, Conviction, Echo, Memory, and Shadow. You translate \
 belief topology into clear, natural English — like a brilliant analyst in \
 conversation, not a data report.
 
@@ -59,9 +58,9 @@ def format_context(
     """
     Render the user-turn context string for a given topic snapshot.
 
-    Returns plain text suitable for insertion into a chat template.
-    user_message: if provided, the actual question the user asked — IntuOne
-    should answer it directly rather than producing a generic briefing.
+    Shows the raw signals first so IntuOne can read the actual content,
+    then each layer's score and observations extracted by the model,
+    then the synthesis reading.
     """
     as_of = as_of or datetime.now(timezone.utc)
     lines: list[str] = []
@@ -71,46 +70,89 @@ def format_context(
     lines.append(f"AS OF: {as_of.strftime('%Y-%m-%d %H:%M UTC')}")
     lines.append("")
 
-    signals_by_layer: dict[str, list[SignalRead]] = {}
-    for sig in signals:
-        signals_by_layer.setdefault(sig.layer, []).append(sig)
+    # ── Raw signals ──────────────────────────────────────────────────────────
+    lines.append(f"━━━ SIGNALS ({len(signals)} total) ━━━")
+    for i, sig in enumerate(signals[:30], 1):
+        proc = sig.processed_data or {}
+        raw = sig.raw_data or {}
+        content = (
+            proc.get("text")
+            or proc.get("question")
+            or raw.get("question")
+            or raw.get("headline")
+            or f"signal from {sig.source}"
+        )[:200]
 
+        facts = []
+        if proc.get("yes_price") is not None:
+            facts.append(f"yes_price={proc['yes_price']:.2f}")
+        if proc.get("volume_24h"):
+            facts.append(f"vol_24h={proc['volume_24h']:,.0f}")
+        if proc.get("liquidity"):
+            facts.append(f"liq={proc['liquidity']:,.0f}")
+
+        fact_str = f" [{', '.join(facts)}]" if facts else ""
+        lines.append(f"  {i}. [{sig.source}]{fact_str} {content}")
+    lines.append("")
+
+    # ── Layer readings ───────────────────────────────────────────────────────
     for layer_key, label in _LAYER_LABELS.items():
         score_data = layer_scores.get(layer_key, {})
-        weight_pct = int(LAYER_WEIGHTS.get(layer_key, 0) * 100)
         score = score_data.get("score", 0.0)
         conf = score_data.get("confidence", 0.0)
         n = score_data.get("signal_count", 0)
+        extra = score_data.get("extra_data") or {}
 
-        lines.append(f"{'━' * 3} {label} [weight {weight_pct}%] {'━' * 3}")
+        lines.append(f"━━━ {label} ━━━")
 
         if conf == 0.0 or n == 0:
             lines.append("  No data available.")
             lines.append("")
             continue
 
-        # Direction arrow
         arrow = "▲" if score > 0.05 else ("▼" if score < -0.05 else "→")
-        lines.append(
-            f"  Score: {score:+.3f} {arrow}  |  Confidence: {conf:.0%}  |  Signals: {n}"
-        )
+        lines.append(f"  Score: {score:+.3f} {arrow}  |  Confidence: {conf:.0%}  |  Signals: {n}")
 
-        # Layer-specific signal formatting
-        layer_sigs = signals_by_layer.get(layer_key, [])
-        _append_layer_signals(lines, layer_key, layer_sigs)
+        if extra.get("key_data"):
+            lines.append("  Key data:")
+            for item in extra["key_data"]:
+                lines.append(f"    • {item}")
+
+        if extra.get("reasoning"):
+            lines.append(f"  Read: {extra['reasoning']}")
+
+        if extra.get("notable"):
+            lines.append(f"  Notable: {extra['notable']}")
+
         lines.append("")
 
-    # Synthesis summary
+    # ── Synthesis ────────────────────────────────────────────────────────────
     synth = layer_scores.get(LayerType.SYNTHESIS, {})
     overall_score = synth.get("score", 0.0)
     overall_conf = synth.get("confidence", 0.0)
     direction = "POSITIVE" if overall_score > 0.1 else ("NEGATIVE" if overall_score < -0.1 else "NEUTRAL")
+
     lines.append("━━━ SYNTHESIS ━━━")
     lines.append(
         f"  Overall: {overall_score:+.3f} ({direction})  |  Confidence: {overall_conf:.0%}"
     )
+
+    if synth.get("convergences"):
+        lines.append("  Convergences:")
+        for c in synth["convergences"]:
+            lines.append(f"    • {c}")
+
+    if synth.get("tensions"):
+        lines.append("  Tensions:")
+        for t in synth["tensions"]:
+            lines.append(f"    • {t}")
+
+    if synth.get("perception_read"):
+        lines.append(f"  Perception: {synth['perception_read']}")
+
     lines.append("")
 
+    # ── Instruction ──────────────────────────────────────────────────────────
     if user_message:
         lines.append(
             f"USER QUESTION: {user_message}\n"
@@ -128,46 +170,6 @@ def format_context(
         )
 
     return "\n".join(lines)
-
-
-def _append_layer_signals(
-    lines: list[str],
-    layer_key: str,
-    sigs: list[SignalRead],
-) -> None:
-    """Append signal detail lines for a specific layer."""
-    if not sigs:
-        return
-
-    # Sort by signal_strength descending, show top 5
-    top = sorted(sigs, key=lambda s: s.signal_strength or 0.0, reverse=True)[:5]
-
-    if layer_key == LayerType.PROBABILITY:
-        for sig in top:
-            pd = sig.processed_data or {}
-            q = pd.get("question", "Unknown market")[:90]
-            yes = pd.get("yes_price")
-            vol = pd.get("volume_24h")
-            yes_str = f"YES {yes:.0%}" if yes is not None else "?"
-            vol_str = f"${vol:,.0f} vol/24h" if vol else ""
-            lines.append(f"  • {q}")
-            lines.append(f"    {yes_str}  {vol_str}")
-
-    elif layer_key in (LayerType.ECHO, LayerType.MEMORY, LayerType.CONVICTION):
-        for sig in top:
-            pd = sig.processed_data or {}
-            text = pd.get("text") or pd.get("headline") or pd.get("summary", "")
-            sentiment = pd.get("sentiment_score")
-            sent_str = f"[sentiment {sentiment:+.2f}]" if sentiment is not None else ""
-            lines.append(f"  • {text[:100]} {sent_str}".strip())
-
-    elif layer_key == LayerType.SHADOW:
-        for sig in top:
-            pd = sig.processed_data or {}
-            summary = pd.get("summary") or pd.get("headline", "")
-            direction = pd.get("direction_score")
-            dir_str = f"[direction {direction:+.2f}]" if direction is not None else ""
-            lines.append(f"  • {summary[:100]} {dir_str}".strip())
 
 
 # ── chat template wrapper ────────────────────────────────────────────────────

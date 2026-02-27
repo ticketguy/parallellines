@@ -123,17 +123,17 @@ async def generate_examples_for_topic(
 
     signals = [SignalRead.model_validate(s) for s in raw_signals]
 
-    # 2. Score each layer
+    # 2. Score each layer — all signals go through every layer
     layer_scores: dict = {}
     for layer in PRIMARY_LAYERS:
-        layer_sigs = [s for s in signals if s.layer == layer.layer_name]
-        ls = await layer.score(layer_sigs, topic, time_window)
+        ls = await layer.score(signals, topic, time_window)
         layer_scores[layer.layer_name] = {
             "score": ls.score,
             "confidence": ls.confidence,
             "signal_count": ls.signal_count,
+            **({"extra_data": ls.extra_data} if ls.extra_data else {}),
         }
-    layer_scores["synthesis"] = _synthesis.synthesize(layer_scores)
+    layer_scores["synthesis"] = await _synthesis.synthesize(layer_scores, topic=topic)
 
     # 3. Assign train/val/test split deterministically (80/10/10)
     r = random.random()

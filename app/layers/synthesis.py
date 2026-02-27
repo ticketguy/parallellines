@@ -76,7 +76,15 @@ class SynthesisLayer(LayerBase):
             sc = data.get("score", 0.0)
             conf = data.get("confidence", 0.0)
             n = data.get("signal_count", 0)
+            extra = data.get("extra_data") or {}
             lines.append(f"  {name}: score={sc:+.3f}, confidence={conf:.0%}, signals={n}")
+            if extra.get("reasoning"):
+                lines.append(f"    reasoning: {extra['reasoning']}")
+            if extra.get("notable"):
+                lines.append(f"    notable: {extra['notable']}")
+            if extra.get("key_data"):
+                for item in extra["key_data"][:3]:
+                    lines.append(f"    • {item}")
 
         prompt = _SYNTHESIZE_PROMPT.format(
             topic=topic or "the topic",
