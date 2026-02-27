@@ -1,6 +1,6 @@
 # ParallelLines — IntuOne Perception Engine
 
-A perception framework that maps how belief, sentiment, and conviction form, evolve, and persist. Built on two primary layers — **Connector** (live ingest) and **IntuOne** (interpreter) — it does not attempt to predict outcomes. It observes how humans relate to uncertainty, meaning, and trust.
+A perception framework that maps how belief, sentiment, and conviction form, evolve, and persist. Two cognitive layers — **IntuOne** (interpreter) and **Submind** (parallel cognition) — sit above a **Connector** layer that silently ingests external signals. It does not attempt to predict outcomes. It observes how humans relate to uncertainty, meaning, and trust.
 
 ---
 
@@ -20,9 +20,6 @@ External sources
 ╚══╤══════════════════════════════════════════════════════════╝
    │  signals fan out to all layers simultaneously
    │
-   │  (Submind layer — app/agents/ — is a separate AI-driven
-   │   data-gathering section, handled independently.)
-   │
    ├──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
    ▼              ▼              ▼              ▼              ▼              ▼
 ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
@@ -40,30 +37,33 @@ External sources
                              PERCEPTION INDEX
                         (non-linear composite — app/layers/synthesis.py)
                                     │
-                                    ▼
-╔═════════════════════════════════════════════════════════════╗
-║                     INTUONE LAYER                           ║  app/inference/
-║                                                             ║
-║  Fine-tuned Llama 3.1 8B (QLoRA)   Interpreter. Reads the  ║
-║  LoRA adapter trained on Claude-   Perception Index and     ║
-║  generated perception analyses     translates it into       ║
-║                                    natural-language output. ║
-╚══════════════════╤══════════════════════════════════════════╝
-                   │
-       ┌───────────┼───────────┐
-       ▼           ▼           ▼
-    Chat UI    Dashboard    REST API
+          ┌─────────────────────────┴─────────────────────────┐
+          ▼                                                     ▼
+╔══════════════════════════════╗          ╔══════════════════════════════════╗
+║       INTUONE LAYER          ║          ║         SUBMIND LAYER            ║
+║       app/inference/         ║          ║         app/agents/              ║
+║                              ║          ║                                  ║
+║  Fine-tuned Llama 3.1 8B     ║          ║  Parallel cognitive process.     ║
+║  Reads the Perception Index  ║◄────────►║  Not a data pipeline. A          ║
+║  and translates it into      ║  fires   ║  different section of the same   ║
+║  natural-language output.    ║  together║  mind — activates when IntuOne   ║
+║                              ║          ║  fires, running a different       ║
+╚══════════╤═══════════════════╝          ║  cognitive function alongside it. ║
+           │                              ╚══════════════════════════════════╝
+┌──────────┼──────────┐
+▼          ▼          ▼
+Chat UI  Dashboard  REST API
 ```
 
 **Connector layer** — the silent observer. Each connector owns exactly one external source. It fetches raw data, records presence without interpretation, and normalises into typed `Signal` objects. The ingestion loop calls `connector.fetch()` on every registered connector each cycle. Adding a new live data source means writing a new connector.
-
-**Submind layer** (`app/agents/`) — a separate AI-driven data-gathering section, handled independently of the main ingest pipeline. Subminds are not called by the ingestion loop.
 
 **The six perception layers** run simultaneously and independently — each answers a different question about the same reality. They do not form a pipeline. No layer overrides another. The Perception Index is their non-linear composite; compressing it to a single score hides instability (high Conviction + high Fracture = instability, not certainty).
 
 **Fracture Layer** — not yet implemented. Will detect divergence between crowd probability and minority conviction: where belief is detaching from data.
 
 **IntuOne layer** — the interpreter. It reads resonance, not correctness. It receives the full Perception Index and translates it into natural-language analysis. Trained via a teacher→student loop: Claude generates gold-standard perception analyses, QLoRA bakes that reasoning into a local model that runs entirely on your own hardware.
+
+**Submind layer** (`app/agents/`) — a parallel cognitive process, not a data pipeline. It is a different section of the same mind. When IntuOne fires, Submind fires alongside it — running a separate cognitive function concurrently, the way a prefrontal cortex operates in parallel with other brain regions rather than feeding data into them. Subminds are not connected to the connector registry and play no role in signal ingestion.
 
 ---
 
@@ -97,9 +97,9 @@ The server runs immediately without a GPU. To enable the fine-tuned model, follo
 ```
 parallellines/
 ├── app/
-│   ├── agents/          # SUBMIND LAYER — separate AI-driven data-gathering
-│   │   ├── base.py      #   SubmindBase abstract class
-│   │   └── polymarket.py#   PolymarketSubmind (planned; not used by ingest loop)
+│   ├── agents/          # SUBMIND LAYER — parallel cognitive process.
+│   │   ├── base.py      #   SubmindBase abstract class. Fires when IntuOne fires.
+│   │   └── polymarket.py#   PolymarketSubmind. Not part of the ingest pipeline.
 │   ├── connectors/      # CONNECTOR LAYER — one connector per data source.
 │   │                    #   Registered via @register_connector; the ingestion
 │   │                    #   loop calls connector.fetch() each cycle.

@@ -232,29 +232,11 @@ Only the `probability` layer has a hard requirement (`yes_price`). All other lay
 
 ### Writing a new submind
 
-Subminds (`app/agents/`) are a separate AI-driven data-gathering section handled independently of the main connector pipeline. They are **not** called by the ingestion loop — do not register them in `app/connectors/registry.py`.
+Subminds (`app/agents/`) are **not** part of the data ingestion pipeline and are **not** registered in `app/connectors/registry.py`. They are a parallel cognitive layer — a different section of the same mind — that fires alongside IntuOne, not before it.
 
-Every submind inherits from `SubmindBase` (`app/agents/base.py`):
+A submind is not a data source. It performs a concurrent cognitive function: verifying, questioning, or running a second line of reasoning while IntuOne interprets. Think of it as the prefrontal region of the system — active at the same time as the interpreter, doing a different job.
 
-```python
-# app/agents/twitter.py
-from app.agents.base import SubmindBase
-from app.constants import LayerType
-from app.schemas.signal import SignalCreate
-
-class TwitterSubmind(SubmindBase):
-    name = "twitter"
-    layer = LayerType.ECHO
-
-    async def fetch(self) -> list[SignalCreate]:
-        # Call the Twitter API, return normalised SignalCreate objects.
-        # Put content in processed_data={"text": tweet_text}
-        ...
-
-    async def process(self, raw: dict) -> dict:
-        # Translate one raw tweet dict into a processed_data dict.
-        ...
-```
+Every submind inherits from `SubmindBase` (`app/agents/base.py`). The interface will reflect its cognitive role, not a data-fetching contract.
 
 ### Check layer scores
 
