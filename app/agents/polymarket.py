@@ -7,7 +7,6 @@ import httpx
 from app.agents.base import SubmindBase
 from app.config import settings
 from app.constants import LayerType
-from app.schemas.audit import SubmindAudit
 from app.schemas.signal import SignalCreate, SignalRead
 
 
@@ -83,90 +82,69 @@ class PolymarketSubmind(SubmindBase):
     async def process(self, raw: dict) -> dict:
         return self._to_signal(raw).processed_data
 
-    # ── audit ─────────────────────────────────────────────────────────────────
+    # ── audit hooks ───────────────────────────────────────────────────────────
 
-    async def audit(
+    def _consistency_check(
         self,
         layer_scores: dict[str, Any],
-        signals: list[SignalRead],
-        prior_score: float | None = None,
-    ) -> SubmindAudit:
+        my_signals: list[SignalRead],
+    ) -> list[str]:
         """
-        Parallel cognitive audit of the Perception Index using Polymarket data.
-
-        Five checks:
-          1. Checking       — do raw YES prices align with IntuOne's direction?
-          2. Challenging    — which high-volume markets bet the opposite way?
-          3. Drift          — has synthesis score moved significantly from prior?
-          4. Gaps           — is the market sample concentrated or thin?
-          5. Meta-awareness — is YES price consensus noisy? Is volume thin?
+        Does IntuOne's synthesis direction match the crowd YES prices?
+        Checks: majority direction, and highest-volume market alignment.
         """
-        my_signals = [s for s in signals if s.source == self.name]
+        synthesis_score: float = layer_scores.get("synthesis", {}).get("score", 0.0)
+        markets = [s.processed_data or {} for s in my_signals]
+        yes_prices = [m["yes_price"] for m in markets if m.get("yes_price") is not None]
+        flags: list[str] = []
 
-        if not my_signals:
-            return SubmindAudit(
-                submind=self.name,
-                noise_flags=["No Polymarket signals in pool — audit skipped"],
-                index_reliability=0.0,
-                challenge_intensity=0.3,
-                summary="No prediction market data in signal pool — audit could not run.",
+        if not yes_prices:
+            return flags
+
+        bullish_fraction = sum(1 for p in yes_prices if p > 0.50) / len(yes_prices)
+
+        if synthesis_score > 0.40 and bullish_fraction < 0.35:
+            flags.append(
+                f"Synthesis reads {synthesis_score:+.2f} (bullish) but only "
+                f"{bullish_fraction:.0%} of markets have YES > 0.50"
+            )
+        elif synthesis_score < -0.40 and bullish_fraction > 0.65:
+            flags.append(
+                f"Synthesis reads {synthesis_score:+.2f} (bearish) but "
+                f"{bullish_fraction:.0%} of markets price YES above 0.50"
             )
 
+        # Highest-volume market alignment
+        top = max(markets, key=lambda m: float(m.get("volume_24h") or 0), default=None)
+        if top and top.get("yes_price") is not None:
+            top_yes = top["yes_price"]
+            top_q = (top.get("question") or "unknown")[:80]
+            if synthesis_score > 0.30 and top_yes < 0.40:
+                flags.append(
+                    f"Highest-volume market ({top_q!r}) prices YES at {top_yes:.2f} "
+                    f"— contradicts bullish synthesis"
+                )
+            elif synthesis_score < -0.30 and top_yes > 0.60:
+                flags.append(
+                    f"Highest-volume market ({top_q!r}) prices YES at {top_yes:.2f} "
+                    f"— contradicts bearish synthesis"
+                )
+
+        return flags
+
+    def _counter_narrative(
+        self,
+        layer_scores: dict[str, Any],
+        my_signals: list[SignalRead],
+    ) -> tuple[str | None, list[str]]:
+        """
+        Find high-volume markets betting against the synthesis direction.
+        Returns (counter_narrative text, overconfidence_warnings).
+        Overconfidence warnings beyond the generic base checks go here.
+        """
+        synthesis_score: float = layer_scores.get("synthesis", {}).get("score", 0.0)
         markets = [s.processed_data or {} for s in my_signals]
 
-        synth = layer_scores.get("synthesis", {})
-        synthesis_score: float = synth.get("score", 0.0)
-        synthesis_conf: float = synth.get("confidence", 0.0)
-        prob_conf: float = layer_scores.get("probability", {}).get("confidence", 0.0)
-
-        consistency_flags: list[str] = []
-        counter_narrative: str | None = None
-        overconfidence_warnings: list[str] = []
-        drift_detected = False
-        drift_explanation: str | None = None
-        underweighted_signals: list[str] = []
-        noise_flags: list[str] = []
-        index_reliability = 1.0
-
-        yes_prices = [
-            m["yes_price"] for m in markets if m.get("yes_price") is not None
-        ]
-
-        # ── 1. CHECKING ───────────────────────────────────────────────────────
-        # Does the synthesis direction match the crowd YES prices?
-        if yes_prices:
-            bullish_count = sum(1 for p in yes_prices if p > 0.50)
-            bullish_fraction = bullish_count / len(yes_prices)
-
-            if synthesis_score > 0.40 and bullish_fraction < 0.35:
-                consistency_flags.append(
-                    f"Synthesis reads {synthesis_score:+.2f} (bullish) but only "
-                    f"{bullish_fraction:.0%} of markets have YES > 0.50"
-                )
-            elif synthesis_score < -0.40 and bullish_fraction > 0.65:
-                consistency_flags.append(
-                    f"Synthesis reads {synthesis_score:+.2f} (bearish) but "
-                    f"{bullish_fraction:.0%} of markets price YES above 0.50"
-                )
-
-            # Highest-volume market alignment
-            top = max(markets, key=lambda m: float(m.get("volume_24h") or 0), default=None)
-            if top and top.get("yes_price") is not None:
-                top_yes = top["yes_price"]
-                top_q = (top.get("question") or "unknown")[:80]
-                if synthesis_score > 0.30 and top_yes < 0.40:
-                    consistency_flags.append(
-                        f"Highest-volume market ({top_q!r}) prices YES at {top_yes:.2f} "
-                        f"— contradicts bullish synthesis"
-                    )
-                elif synthesis_score < -0.30 and top_yes > 0.60:
-                    consistency_flags.append(
-                        f"Highest-volume market ({top_q!r}) prices YES at {top_yes:.2f} "
-                        f"— contradicts bearish synthesis"
-                    )
-
-        # ── 2. CHALLENGING ────────────────────────────────────────────────────
-        # Find high-volume markets betting against the synthesis direction
         opposite: list[tuple[float, dict]] = []
         for m in markets:
             yp = m.get("yes_price")
@@ -178,6 +156,7 @@ class PolymarketSubmind(SubmindBase):
             elif synthesis_score < -0.10 and yp > 0.60:
                 opposite.append((vol, m))
 
+        counter_narrative: str | None = None
         if opposite:
             opposite.sort(key=lambda x: x[0], reverse=True)
             top_opp = opposite[0][1]
@@ -191,117 +170,64 @@ class PolymarketSubmind(SubmindBase):
                 f"(yes_price={opp_yp:.2f}, 24h_vol=${opp_vol:,.0f})"
             )
 
-        # Overconfidence on thin sample
-        if prob_conf > 0.85 and len(my_signals) < 5:
-            overconfidence_warnings.append(
-                f"Probability layer confidence {prob_conf:.0%} on only "
-                f"{len(my_signals)} markets — insufficient sample for this certainty"
-            )
-        if synthesis_conf > 0.80 and len(consistency_flags) > 0:
-            overconfidence_warnings.append(
-                f"Synthesis confidence {synthesis_conf:.0%} despite "
-                f"{len(consistency_flags)} consistency flag(s)"
-            )
+        return counter_narrative, []
 
-        # ── 3. DRIFT ──────────────────────────────────────────────────────────
-        if prior_score is not None:
-            delta = abs(synthesis_score - prior_score)
-            if delta > 0.30:
-                drift_detected = True
-                direction = "strengthened" if synthesis_score > prior_score else "weakened"
-                drift_explanation = (
-                    f"Synthesis moved from {prior_score:+.2f} to {synthesis_score:+.2f} "
-                    f"(Δ{delta:.2f}) — narrative has {direction} significantly"
-                )
+    def _gap_check(self, my_signals: list[SignalRead]) -> list[str]:
+        """
+        Category concentration risk and thin sample detection.
+        """
+        markets = [s.processed_data or {} for s in my_signals]
+        gaps: list[str] = []
 
-        # ── 4. GAPS ───────────────────────────────────────────────────────────
-        # Category concentration
         categories = [m.get("category") for m in markets if m.get("category")]
         if len(categories) > 3:
             most_common = max(set(categories), key=categories.count)
             cat_fraction = categories.count(most_common) / len(categories)
             if cat_fraction > 0.60:
-                underweighted_signals.append(
+                gaps.append(
                     f"{cat_fraction:.0%} of markets are in category '{most_common}' "
                     "— other domains may be underrepresented"
                 )
 
         if len(my_signals) < 5:
-            underweighted_signals.append(
+            gaps.append(
                 f"Only {len(my_signals)} Polymarket signals in pool — "
                 "broader market sweep may surface missed signals"
             )
 
-        # ── 5. META-AWARENESS ─────────────────────────────────────────────────
-        # YES price spread — high variance = noisy consensus
+        return gaps
+
+    def _noise_check(self, my_signals: list[SignalRead]) -> tuple[float, list[str]]:
+        """
+        YES price spread and volume thinness.
+        Returns (reliability_penalty, noise_flags).
+        """
+        markets = [s.processed_data or {} for s in my_signals]
+        yes_prices = [m["yes_price"] for m in markets if m.get("yes_price") is not None]
+        flags: list[str] = []
+        penalty = 0.0
+
         if len(yes_prices) > 2:
             std = statistics.stdev(yes_prices)
             if std > 0.30:
-                noise_flags.append(
+                flags.append(
                     f"YES price spread is wide (std={std:.2f}) — "
                     "no clear directional consensus in prediction markets"
                 )
-                index_reliability -= 0.25
+                penalty += 0.25
 
-        # Thin volume pool
         total_vol = sum(float(m.get("volume_24h") or 0) for m in markets)
         if total_vol < 10_000:
-            noise_flags.append(
+            flags.append(
                 f"Total 24h volume is thin (${total_vol:,.0f}) — "
                 "markets may not reflect informed crowd belief"
             )
-            index_reliability -= 0.20
+            penalty += 0.20
 
-        # Very few markets
         if len(my_signals) < 3:
-            noise_flags.append(
+            flags.append(
                 f"Only {len(my_signals)} markets sampled — index is low-confidence"
             )
-            index_reliability -= 0.30
+            penalty += 0.30
 
-        index_reliability = max(0.0, min(1.0, index_reliability))
-
-        # ── CHALLENGE INTENSITY ───────────────────────────────────────────────
-        flag_count = (
-            len(consistency_flags)
-            + len(overconfidence_warnings)
-            + len(noise_flags)
-            + len(underweighted_signals)
-            + (1 if drift_detected else 0)
-            + (1 if counter_narrative else 0)
-        )
-        challenge_intensity = min(1.0, flag_count * 0.15)
-
-        # ── SUMMARY ───────────────────────────────────────────────────────────
-        if challenge_intensity < 0.20:
-            summary = (
-                f"Polymarket signals broadly endorse the synthesis ({synthesis_score:+.2f}). "
-                f"{len(my_signals)} markets read, index reliability {index_reliability:.0%}."
-            )
-        elif challenge_intensity < 0.50:
-            summary = (
-                f"Polymarket audit raises moderate concerns "
-                f"({len(consistency_flags)} consistency flag(s), "
-                f"{len(noise_flags)} noise flag(s)). "
-                f"Synthesis ({synthesis_score:+.2f}) should be read with caution."
-            )
-        else:
-            summary = (
-                f"Polymarket audit is significantly challenging the synthesis "
-                f"({synthesis_score:+.2f}). Multiple flags — treat index "
-                "confidence as overstated."
-            )
-
-        return SubmindAudit(
-            submind=self.name,
-            consistency_flags=consistency_flags,
-            counter_narrative=counter_narrative,
-            overconfidence_warnings=overconfidence_warnings,
-            drift_detected=drift_detected,
-            drift_explanation=drift_explanation,
-            underweighted_signals=underweighted_signals,
-            index_reliability=index_reliability,
-            noise_flags=noise_flags,
-            challenge_intensity=challenge_intensity,
-            summary=summary,
-        )
+        return penalty, flags
