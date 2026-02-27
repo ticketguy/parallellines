@@ -101,25 +101,25 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
 ## 2. Activate the other layers
 
-Out of the box only the **Market** layer has live data (Polymarket). Here is the status of all six layers and how to activate each one.
+Out of the box only the **`probability`** layer has live data (Polymarket). Here is the status of all six layers and how to activate each one.
 
 ### Layer status overview
 
 | Layer | Status | What feeds it |
 |-------|--------|---------------|
-| Market | Live | Polymarket connector (auto-polls every 5 min) |
-| News | Ready — needs sources | Web crawler connector |
-| Sentiment | Ready — needs sources | Web crawler connector (same signals) |
-| Social | Stub | Twitter/Reddit connector (not yet wired) |
-| Geopolitical | Stub | Custom connector needed |
-| Synthesis | Live | Aggregates whichever layers have scores |
+| `probability` | Live | Polymarket connector (auto-polls every 5 min) |
+| `memory` | Ready — needs sources | Web crawler connector |
+| `conviction` | Ready — needs sources | Web crawler connector (same signals) |
+| `echo` | Stub | Twitter/Reddit connector (not yet wired) |
+| `shadow` | Stub | Custom connector needed |
+| `synthesis` | Live | Aggregates whichever layers have scores |
 
-### News and sentiment layers — add crawl sources
+### Memory and conviction layers — add crawl sources
 
 The web crawler connector is already running. It just needs URLs to fetch. Add any news page, RSS feed, or blog:
 
 ```bash
-# Add a news source
+# Add a news source — feeds the memory layer (narrative persistence scoring)
 curl -X POST http://localhost:8000/api/v1/ingest/sources \
   -H "Content-Type: application/json" \
   -d '{
@@ -146,9 +146,7 @@ Sources are stored in the database and loaded automatically on the next ingestio
 curl -X POST http://localhost:8000/api/v1/ingest/run
 ```
 
-The same signals flow into both the **News** layer (headline/volume scoring) and the **Sentiment** layer (NLP sentiment scoring), so both activate with the same sources.
-
-To route a source to the sentiment layer specifically:
+The same signals can feed both the **`memory`** layer (narrative persistence scoring) and the **`conviction`** layer (depth-of-belief scoring). To route a source specifically to conviction:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/ingest/sources \
@@ -156,23 +154,23 @@ curl -X POST http://localhost:8000/api/v1/ingest/sources \
   -d '{
     "url": "https://example.com/opinion",
     "topic_tags": ["politics"],
-    "layer": "sentiment",
+    "layer": "conviction",
     "label": "Opinion feed"
   }'
 ```
 
-### Social layer — write a Twitter submind
+### Echo layer — add a social connector
 
-The Echo layer scorer is fully implemented. It needs a submind that fetches from Twitter/X or Reddit and produces signals with a `sentiment_score` field. The Twitter bearer token placeholder is already in `.env.example`:
+The `echo` layer scorer is fully implemented. It needs a connector that fetches from Twitter/X or Reddit and produces signals with text content. The Twitter bearer token placeholder is already in `.env.example`:
 
 ```dotenv
 # .env
 TWITTER_BEARER_TOKEN=your-bearer-token-here
 ```
 
-To wire it up, create `app/agents/twitter.py` subclassing `SubmindBase` (see [Writing a new submind](#writing-a-new-submind) below), then register it in `app/connectors/registry.py`.
+To wire it up, create `app/connectors/twitter.py` subclassing `BaseConnector` (see [Writing a new connector](#writing-a-new-connector) below). The `@register_connector` decorator handles registration automatically.
 
-Until then, feed the social layer manually:
+Until then, feed the echo layer manually:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/signals \
@@ -182,18 +180,61 @@ curl -X POST http://localhost:8000/api/v1/signals \
     "layer": "echo",
     "topic_tags": ["bitcoin"],
     "signal_strength": 0.8,
-    "processed_data": {"sentiment_score": 0.6},
+    "processed_data": {"text": "Bitcoin dominance narrative spreading across forums"},
     "confidence": 0.7
   }'
 ```
 
-### Geopolitical layer — write a policy submind
+### Shadow layer — add a geopolitical connector
 
-The Shadow layer reads a `direction_score` field (range -1.0 to +1.0). It needs a submind that parses government statements, regulatory filings, or similar sources. Feed it manually the same way as social above, using `"layer": "shadow"` and `"direction_score"` in `processed_data`.
+The `shadow` layer scorer is fully implemented. It needs a connector that parses government statements, regulatory filings, or similar sources. Feed it manually the same way as echo above, using `"layer": "shadow"` and a `text` or `headline` field in `processed_data`.
+
+### Writing a new connector
+
+Every connector inherits from `BaseConnector` (`app/connectors/base.py`) and is auto-registered via the `@register_connector` decorator. The interface is one required method:
+
+```python
+# app/connectors/twitter.py
+from app.connectors.base import BaseConnector, RawSignal
+from app.connectors.registry import register_connector
+from app.constants import LayerType
+
+@register_connector
+class TwitterConnector(BaseConnector):
+    name = "twitter"
+    layer = LayerType.ECHO
+
+    @classmethod
+    def from_env(cls) -> "TwitterConnector":
+        token = os.getenv("TWITTER_BEARER_TOKEN", "")
+        return cls(enabled=bool(token), bearer_token=token)
+
+    async def fetch(self) -> list[RawSignal]:
+        # Call the Twitter API, return normalised RawSignal dicts.
+        # Put tweet text in processed_data={"text": tweet_text, "headline": author}
+        # so the echo layer scorer can read it.
+        ...
+```
+
+The `@register_connector` decorator handles registration automatically. The ingestion loop calls `fetch()` on every registered connector each cycle. No other changes needed.
+
+**Signal `processed_data` fields by layer:**
+
+| Target layer | Useful fields in `processed_data` | Notes |
+|---|---|---|
+| `probability` | `yes_price` (required), `volume_24h`, `liquidity` | `yes_price` range 0.0–1.0 |
+| `memory` | `text`, `headline`, or `question` | Any text field; falls back to `raw_data` |
+| `conviction` | `text`, `headline`, or `question` | Any text field; falls back to `raw_data` |
+| `echo` | `text`, `headline`, or `question` | Any text field; falls back to `raw_data` |
+| `shadow` | `text`, `headline`, or `question` | Any text field; falls back to `raw_data` |
+
+Only the `probability` layer has a hard requirement (`yes_price`). All other layers extract whatever text content is available — `processed_data.text`, `processed_data.question`, `processed_data.headline`, or `raw_data.question`/`raw_data.headline` as fallback.
 
 ### Writing a new submind
 
-Every submind inherits from `SubmindBase` (`app/agents/base.py`). The interface is two methods:
+Subminds (`app/agents/`) are a separate AI-driven data-gathering section handled independently of the main connector pipeline. They are **not** called by the ingestion loop — do not register them in `app/connectors/registry.py`.
+
+Every submind inherits from `SubmindBase` (`app/agents/base.py`):
 
 ```python
 # app/agents/twitter.py
@@ -203,37 +244,17 @@ from app.schemas.signal import SignalCreate
 
 class TwitterSubmind(SubmindBase):
     name = "twitter"
-    layer = LayerType.SOCIAL
+    layer = LayerType.ECHO
 
     async def fetch(self) -> list[SignalCreate]:
         # Call the Twitter API, return normalised SignalCreate objects.
-        # Set processed_data={"sentiment_score": float} so the social
-        # layer scorer can read it.
+        # Put content in processed_data={"text": tweet_text}
         ...
 
     async def process(self, raw: dict) -> dict:
         # Translate one raw tweet dict into a processed_data dict.
         ...
 ```
-
-Then register it so the ingestion loop picks it up:
-
-```python
-# app/connectors/registry.py — add to the submind list
-from app.agents.twitter import TwitterSubmind
-```
-
-The ingestion loop calls `fetch()` on every registered submind on each cycle. No other changes needed.
-
-**Signal schema requirements by layer:**
-
-| Target layer | Required field in `processed_data` | Range |
-|---|---|---|
-| probability | `yes_price` | 0.0 – 1.0 |
-| memory | `sentiment_score` | -1.0 – +1.0 |
-| conviction | `sentiment_score` | -1.0 – +1.0 |
-| echo | `sentiment_score` | -1.0 – +1.0 |
-| shadow | `direction_score` | -1.0 – +1.0 |
 
 ### Check layer scores
 

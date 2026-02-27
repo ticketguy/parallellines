@@ -1,6 +1,6 @@
 # ParallelLines — IntuOne Perception Engine
 
-A perception framework that maps how belief, sentiment, and conviction form, evolve, and persist. Built on two primary layers — **Submind** and **IntuOne** — it does not attempt to predict outcomes. It observes how humans relate to uncertainty, meaning, and trust.
+A perception framework that maps how belief, sentiment, and conviction form, evolve, and persist. Built on two primary layers — **Connector** (live ingest) and **IntuOne** (interpreter) — it does not attempt to predict outcomes. It observes how humans relate to uncertainty, meaning, and trust.
 
 ---
 
@@ -8,17 +8,20 @@ A perception framework that maps how belief, sentiment, and conviction form, evo
 
 ```
 External sources
-(Polymarket, Twitter, news sites, …)
+(Polymarket, web crawlers, …)
           │
           ▼
 ╔═════════════════════════════════════════════════════════════╗
-║                     SUBMIND LAYER                           ║  app/agents/
+║                    CONNECTOR LAYER                          ║  app/connectors/
 ║                                                             ║
-║  PolymarketSubmind  ✓    Silent observer. No interpretation.║
-║  TwitterSubmind     ~    Each submind owns one source and   ║
-║  NewsSubmind        ~    records raw presence as Signals.   ║
+║  PolymarketConnector  ✓  Silent ingest. No interpretation.  ║
+║  WebCrawlerConnector  ✓  Each connector owns one source and ║
+║  TwitterConnector     ~  records raw presence as Signals.   ║
 ╚══╤══════════════════════════════════════════════════════════╝
    │  signals fan out to all layers simultaneously
+   │
+   │  (Submind layer — app/agents/ — is a separate AI-driven
+   │   data-gathering section, handled independently.)
    │
    ├──────────────┬──────────────┬──────────────┬──────────────┬──────────────┐
    ▼              ▼              ▼              ▼              ▼              ▼
@@ -52,7 +55,9 @@ External sources
     Chat UI    Dashboard    REST API
 ```
 
-**Submind layer** — the silent observer. Each submind owns exactly one external source. It fetches raw data, records presence without interpretation, and normalises into typed `Signal` objects. Adding a new data source means writing a new submind.
+**Connector layer** — the silent observer. Each connector owns exactly one external source. It fetches raw data, records presence without interpretation, and normalises into typed `Signal` objects. The ingestion loop calls `connector.fetch()` on every registered connector each cycle. Adding a new live data source means writing a new connector.
+
+**Submind layer** (`app/agents/`) — a separate AI-driven data-gathering section, handled independently of the main ingest pipeline. Subminds are not called by the ingestion loop.
 
 **The six perception layers** run simultaneously and independently — each answers a different question about the same reality. They do not form a pipeline. No layer overrides another. The Perception Index is their non-linear composite; compressing it to a single score hides instability (high Conviction + high Fracture = instability, not certainty).
 
@@ -92,10 +97,12 @@ The server runs immediately without a GPU. To enable the fine-tuned model, follo
 ```
 parallellines/
 ├── app/
-│   ├── agents/          # SUBMIND LAYER — one agent per data source
+│   ├── agents/          # SUBMIND LAYER — separate AI-driven data-gathering
 │   │   ├── base.py      #   SubmindBase abstract class
-│   │   └── polymarket.py#   PolymarketSubmind (live)
-│   ├── connectors/      # Low-level HTTP fetchers (used by agents)
+│   │   └── polymarket.py#   PolymarketSubmind (planned; not used by ingest loop)
+│   ├── connectors/      # CONNECTOR LAYER — one connector per data source.
+│   │                    #   Registered via @register_connector; the ingestion
+│   │                    #   loop calls connector.fetch() each cycle.
 │   ├── layers/          # Signal processing — market, news, sentiment,
 │   │                    #   social, geopolitical, synthesis scorers
 │   ├── inference/       # INTUONE LAYER — model loading & inference pipeline
@@ -114,7 +121,7 @@ parallellines/
 ├── pyproject.toml
 ├── run.bat              # Windows launcher
 ├── run.sh               # Linux/macOS launcher
-└── SETUP.md             # Full setup guide (database, subminds, training, GPU)
+└── SETUP.md             # Full setup guide (database, connectors, training, GPU)
 ```
 
 ---
