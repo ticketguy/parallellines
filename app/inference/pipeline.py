@@ -22,14 +22,17 @@ IntuOne reads resonance, not correctness. It translates the Perception
 Index into language — interpreting what the belief topology means, not
 forecasting what will happen. The model improves with every training run.
 """
+import asyncio
 import logging
 from typing import Any
 
+from app.agents import REGISTERED_SUBMINDS
 from app.schemas.signal import SignalRead
 from app.services.intuone import PRIMARY_LAYERS, _synthesis
 from app.training.formatter import (
     apply_llama3_chat_template,
     build_chat_messages,
+    format_audit_context,
     format_context,
 )
 from app.inference.reasoning import (
@@ -172,6 +175,7 @@ async def run_intuone(
     force_teacher: bool = False,   # kept for API compatibility — ignored
     user_message: str | None = None,
     extra_context: str | None = None,
+    prior_score: float | None = None,
 ) -> dict[str, Any]:
     """
     End-to-end inference: signals → Perception Index → think → explore → analysis.
@@ -192,13 +196,28 @@ async def run_intuone(
         }
     layer_scores["synthesis"] = await _synthesis.synthesize(layer_scores, topic=topic)
 
-    # 2. Format signal context
+    # 1.5. Run submind audits in parallel — each submind checks its own signals
+    #      against the Perception Index before IntuOne generates the briefing.
+    active_subminds = [
+        s for s in REGISTERED_SUBMINDS
+        if any(sig.source == s.name for sig in signals)
+    ]
+    audits = list(
+        await asyncio.gather(*[
+            s.audit(layer_scores, signals, prior_score)
+            for s in active_subminds
+        ])
+    )
+    audit_block = format_audit_context(audits) if audits else ""
+
+    # 2. Format signal context (audit block injected before the instruction)
     signal_context = format_context(
         topic=topic,
         time_window=time_window,
         signals=signals,
         layer_scores=layer_scores,
         user_message=user_message,
+        audit_context=audit_block,
     )
 
     # 3 & 4. THINK + EXPLORE — IntuOne reasons through the Perception Index
@@ -244,4 +263,20 @@ async def run_intuone(
         "signal_count": len(signals),
         "thinking": thinking,
         "insights": insights,
+        "submind_audits": [
+            {
+                "submind": a.submind,
+                "challenge_intensity": a.challenge_intensity,
+                "index_reliability": a.index_reliability,
+                "consistency_flags": a.consistency_flags,
+                "counter_narrative": a.counter_narrative,
+                "overconfidence_warnings": a.overconfidence_warnings,
+                "drift_detected": a.drift_detected,
+                "drift_explanation": a.drift_explanation,
+                "underweighted_signals": a.underweighted_signals,
+                "noise_flags": a.noise_flags,
+                "summary": a.summary,
+            }
+            for a in audits
+        ],
     }

@@ -54,6 +54,7 @@ def format_context(
     layer_scores: dict[str, dict[str, Any]],
     as_of: datetime | None = None,
     user_message: str | None = None,
+    audit_context: str = "",
 ) -> str:
     """
     Render the user-turn context string for a given topic snapshot.
@@ -152,6 +153,10 @@ def format_context(
 
     lines.append("")
 
+    # ── Submind Audit ─────────────────────────────────────────────────────────
+    if audit_context:
+        lines.append(audit_context)
+
     # ── Instruction ──────────────────────────────────────────────────────────
     if user_message:
         lines.append(
@@ -168,6 +173,63 @@ def format_context(
             "and what the signals collectively mean. Be direct and analytical — "
             "this is a briefing for a decision-maker, not a data report."
         )
+
+    return "\n".join(lines)
+
+
+# ── audit context renderer ───────────────────────────────────────────────────
+
+def format_audit_context(audits: list[Any]) -> str:
+    """
+    Render a list of SubmindAudit objects into a text block for IntuOne.
+
+    Injected into format_context() between the Synthesis section and the
+    final instruction, so IntuOne reads the challenges before generating
+    its briefing.
+
+    Accepts Any to avoid a circular import — callers pass SubmindAudit instances.
+    """
+    if not audits:
+        return ""
+
+    lines: list[str] = ["━━━ SUBMIND AUDIT ━━━"]
+
+    for audit in audits:
+        lines.append(f"  [{audit.submind.upper()} SUBMIND]")
+        lines.append(
+            f"  Challenge intensity: {audit.challenge_intensity:.0%}  |  "
+            f"Index reliability: {audit.index_reliability:.0%}"
+        )
+        lines.append(f"  {audit.summary}")
+        lines.append("")
+
+        if audit.consistency_flags:
+            lines.append("  Consistency checks:")
+            for flag in audit.consistency_flags:
+                lines.append(f"    x {flag}")
+
+        if audit.counter_narrative:
+            lines.append(f"  Counter-narrative: {audit.counter_narrative}")
+
+        if audit.overconfidence_warnings:
+            lines.append("  Overconfidence warnings:")
+            for w in audit.overconfidence_warnings:
+                lines.append(f"    ! {w}")
+
+        if audit.drift_detected and audit.drift_explanation:
+            lines.append(f"  Drift: {audit.drift_explanation}")
+
+        if audit.underweighted_signals:
+            lines.append("  Gaps:")
+            for g in audit.underweighted_signals:
+                lines.append(f"    > {g}")
+
+        if audit.noise_flags:
+            lines.append("  Noise flags:")
+            for n in audit.noise_flags:
+                lines.append(f"    ~ {n}")
+
+        lines.append("")
 
     return "\n".join(lines)
 
