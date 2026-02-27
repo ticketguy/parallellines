@@ -11,10 +11,11 @@ from app.schemas.signal import SignalCreate
 class PolymarketSubmind(SubmindBase):
     """
     Fetches active prediction markets from Polymarket's Gamma API and
-    converts them into Probability layer signals.
+    normalises them into signals carrying objective market facts.
 
-    Signal strength is derived from 24h volume (log-normalised).
-    Confidence is fixed at 0.9 — Polymarket CLOB prices are high-quality.
+    processed_data holds only what the API directly provides:
+    question text, yes/no prices, volume, liquidity, category.
+    No computed scores — the LLM layers read and interpret the content.
     """
 
     name = "polymarket"
@@ -68,22 +69,11 @@ class PolymarketSubmind(SubmindBase):
                 "end_date": market.get("endDate"),
                 "market_slug": market.get("slug"),
             },
-            signal_strength=self._signal_strength(market),
             confidence=0.9,
             topic_tags=[category] if category else [],
             entity_tags=[],
             signal_timestamp=datetime.now(timezone.utc),
         )
-
-    def _signal_strength(self, market: dict) -> float:
-        """
-        Log-normalised 24h volume, capped at 1.0.
-        sqrt(volume) / 1000 — reaches 1.0 at ~$1M daily volume.
-        """
-        volume = float(market.get("volume24Hr") or 0)
-        if volume <= 0:
-            return 0.0
-        return round(min(1.0, (volume**0.5) / 1000.0), 4)
 
     async def process(self, raw: dict) -> dict:
         return self._to_signal(raw).processed_data
