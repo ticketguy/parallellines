@@ -8,10 +8,16 @@ become the fine-tuning dataset for our own model.
 Flow:
   1. Pull recent signals from the DB for a given topic.
   2. Run layer scoring (same as production).
-  3. Format into a context string via formatter.py.
-  4. Call Claude Sonnet with the context.
-  5. Store the result as a TrainingExample row.
+  3. Run submind audits (same as production — training context must match).
+  4. Format into a context string via formatter.py (audit block included).
+  5. Call Claude Sonnet with the context.
+  6. Store the result as a TrainingExample row.
+
+The audit block must be included in training contexts so IntuOne learns
+to read and respond to submind challenges — the training format must be
+identical to the production format.
 """
+import asyncio
 import logging
 import random
 from datetime import datetime, timezone
@@ -20,12 +26,13 @@ import anthropic
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents import REGISTERED_SUBMINDS
 from app.config import settings
 from app.models.signal import Signal
 from app.models.training_example import TrainingExample
 from app.schemas.signal import SignalRead
 from app.services.intuone import PRIMARY_LAYERS, _synthesis
-from app.training.formatter import build_chat_messages, format_context
+from app.training.formatter import build_chat_messages, format_audit_context, format_context
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +61,7 @@ async def generate_example(
     topic: str,
     signals: list[SignalRead],
     layer_scores: dict,
+    audit_context: str = "",
     time_window: str = "24h",
     split: str = "train",
 ) -> TrainingExample | None:
@@ -61,12 +69,14 @@ async def generate_example(
     Generate one TrainingExample for `topic` using Claude as the teacher.
 
     Returns None if the API call fails or yields an unusable response.
+    audit_context: pre-rendered submind audit block from format_audit_context().
     """
     context = format_context(
         topic=topic,
         time_window=time_window,
         signals=signals,
         layer_scores=layer_scores,
+        audit_context=audit_context,
     )
 
     try:
@@ -135,15 +145,29 @@ async def generate_examples_for_topic(
         }
     layer_scores["synthesis"] = await _synthesis.synthesize(layer_scores, topic=topic)
 
-    # 3. Assign train/val/test split deterministically (80/10/10)
+    # 3. Run submind audits — training context must match production context
+    active_subminds = [
+        s for s in REGISTERED_SUBMINDS
+        if any(sig.source == s.name for sig in signals)
+    ]
+    audits = list(
+        await asyncio.gather(*[
+            s.audit(layer_scores, signals)
+            for s in active_subminds
+        ])
+    )
+    audit_context = format_audit_context(audits) if audits else ""
+
+    # 4. Assign train/val/test split (80/10/10)
     r = random.random()
     split = "train" if r < 0.8 else ("val" if r < 0.9 else "test")
 
-    # 4. Generate example via teacher
+    # 5. Generate example via teacher
     example = await generate_example(
         topic=topic,
         signals=signals,
         layer_scores=layer_scores,
+        audit_context=audit_context,
         time_window=time_window,
         split=split,
     )
