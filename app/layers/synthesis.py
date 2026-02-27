@@ -15,13 +15,21 @@ Layer readings for "{topic}":
 {layer_scores}
 
 Synthesize these five perception layers into the overall Perception Index.
-Consider how the layers interact: convergence increases confidence, divergence signals instability.
-High Conviction against falling Probability is risk, not certainty.
-High Echo without Conviction is noise amplification.
-High Memory with falling Probability is a zombie belief.
+Read the layer scores and their detailed observations together. Consider:
+- Where layers converge: that convergence is meaningful, raises confidence
+- Where layers diverge: name the specific tension and what it implies
+- Cross-layer dynamics: High Conviction against falling Probability = risk not certainty.
+  High Echo without Conviction = noise. High Memory with falling Probability = zombie belief.
+- What the full picture tells you that no single layer shows on its own
 
 Output ONLY this JSON (no other text):
-{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+{{
+  "score": <-1.0 to +1.0>,
+  "confidence": <0.0 to 1.0>,
+  "convergences": ["<layers that agree and what they agree on>", ...],
+  "tensions": ["<specific cross-layer conflict and what it means>", ...],
+  "perception_read": "<overall interpretation of the belief topology in 2-3 sentences>"
+}}
 
 score: overall directional read across all layers
 confidence: degree of cross-layer coherence
@@ -76,13 +84,17 @@ class SynthesisLayer(LayerBase):
         )
 
         try:
-            raw = generate_briefing_local(prompt, max_new_tokens=60, temperature=0.1)
-            match = re.search(r"\{[^}]+\}", raw)
+            raw = generate_briefing_local(prompt, max_new_tokens=200, temperature=0.1)
+            match = re.search(r"\{.*\}", raw, re.DOTALL)
             if match:
                 data = json.loads(match.group())
                 score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
                 conf = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
-                return {"score": round(score, 4), "confidence": round(conf, 4)}
+                result: dict = {"score": round(score, 4), "confidence": round(conf, 4)}
+                for key in ("convergences", "tensions", "perception_read"):
+                    if data.get(key):
+                        result[key] = data[key]
+                return result
         except Exception as exc:
             logger.debug("[synthesis] LLM synthesize failed: %s", exc)
 

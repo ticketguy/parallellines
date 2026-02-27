@@ -22,11 +22,22 @@ Topic: {topic} | Window: {time_window}
 Signals:
 {signals}
 
-Question: How deeply is belief held in these signals? Is there intense emotional commitment \
-and strong conviction, or is belief shallow, hedged, and tentative?
+Read every signal carefully. How deeply is belief held in what you're reading? Look for intensity \
+of language, certainty of claims, emotional commitment, and whether sources express conviction \
+or hedged uncertainty. A market priced at 0.99 shows deep conviction. Strongly worded articles \
+show conviction. Vague or balanced coverage shows shallow belief.
+
+Extract specific phrases, price levels, or data points that reveal depth of belief. \
+Note sources where conviction is unusually strong or strikingly absent.
 
 Output ONLY this JSON (no other text):
-{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+{{
+  "score": <-1.0 to +1.0>,
+  "confidence": <0.0 to 1.0>,
+  "key_data": ["<specific evidence of conviction depth>", ...],
+  "reasoning": "<what the signals reveal about how deeply belief is held>",
+  "notable": "<any unusually strong or absent conviction worth flagging — or null>"
+}}
 
 score: -1.0=deep conviction against the outcome, +1.0=deep conviction for it, 0.0=shallow or divided
 confidence: how much signal data supports this conviction reading
@@ -40,7 +51,7 @@ confidence: how much signal data supports this conviction reading
     ) -> LayerScoreCreate:
         if not signals:
             return self._empty_score(topic, time_window)
-        sc, conf = await self._llm_score(signals, topic, time_window)
+        sc, conf, extra = await self._llm_score(signals, topic, time_window)
         return LayerScoreCreate(
             layer=self.layer_name,
             topic=topic,
@@ -48,4 +59,5 @@ confidence: how much signal data supports this conviction reading
             confidence=round(conf, 4),
             signal_count=len(signals),
             time_window=time_window,
+            extra_data=extra or None,
         )

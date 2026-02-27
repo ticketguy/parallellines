@@ -22,14 +22,25 @@ Topic: {topic} | Window: {time_window}
 Signals:
 {signals}
 
-Question: Is belief about this topic persisting even after contradicting evidence? \
-Are narratives stubbornly recurring in coverage, or is belief shifting as new data arrives?
+Read every signal carefully. Is belief about this topic persisting even where contradicting \
+evidence exists? Look for narratives that keep recurring despite counter-data, claims that \
+were already refuted but are still circulating, and framing that hasn't updated to reflect \
+new information. Also look for belief that IS shifting — that is low Memory.
+
+Extract the specific stale narratives, contradicted claims that persist, or evidence of \
+belief updating. Name the narratives that are refusing to die.
 
 Output ONLY this JSON (no other text):
-{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+{{
+  "score": <-1.0 to +1.0>,
+  "confidence": <0.0 to 1.0>,
+  "key_data": ["<specific persisting narrative or updating pattern>", ...],
+  "reasoning": "<what the signals reveal about narrative persistence or decay>",
+  "notable": "<any zombie belief or striking narrative shift worth flagging — or null>"
+}}
 
-score: -1.0=negative narrative persisting despite counter-evidence, +1.0=positive narrative persisting, \
-0.0=belief tracking reality normally
+score: -1.0=negative narrative persisting despite counter-evidence, +1.0=positive narrative \
+persisting, 0.0=belief tracking reality normally
 confidence: how much signal data supports this memory reading
 [/SCORE-LAYER]"""
 
@@ -41,7 +52,7 @@ confidence: how much signal data supports this memory reading
     ) -> LayerScoreCreate:
         if not signals:
             return self._empty_score(topic, time_window)
-        sc, conf = await self._llm_score(signals, topic, time_window)
+        sc, conf, extra = await self._llm_score(signals, topic, time_window)
         return LayerScoreCreate(
             layer=self.layer_name,
             topic=topic,
@@ -49,4 +60,5 @@ confidence: how much signal data supports this memory reading
             confidence=round(conf, 4),
             signal_count=len(signals),
             time_window=time_window,
+            extra_data=extra or None,
         )

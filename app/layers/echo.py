@@ -22,11 +22,22 @@ Topic: {topic} | Window: {time_window}
 Signals:
 {signals}
 
-Question: How widely is belief about this topic spreading and being repeated across sources? \
-Look for repetition, reinforcement, and narrative contagion — not depth of belief, but reach and spread.
+Read every signal carefully. How widely is belief about this topic spreading and being reinforced \
+across sources? Look for repetition of the same narrative across multiple sources, viral framing, \
+amplification patterns, and contagion of specific claims. High volume and wide reach without deep \
+analysis is Echo. The same talking point appearing everywhere is Echo.
+
+Extract the specific repeated narratives, shared framing, or amplified claims you find. \
+Note where reach is high but depth is low — that gap is the Echo signal.
 
 Output ONLY this JSON (no other text):
-{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+{{
+  "score": <-1.0 to +1.0>,
+  "confidence": <0.0 to 1.0>,
+  "key_data": ["<specific repeated narrative or amplification pattern>", ...],
+  "reasoning": "<what the signals reveal about spread and repetition of belief>",
+  "notable": "<any unusually viral narrative or striking absence of amplification — or null>"
+}}
 
 score: -1.0=negative narrative spreading widely, +1.0=positive narrative spreading widely, 0.0=no amplification
 confidence: how much signal data supports this echo reading
@@ -40,7 +51,7 @@ confidence: how much signal data supports this echo reading
     ) -> LayerScoreCreate:
         if not signals:
             return self._empty_score(topic, time_window)
-        sc, conf = await self._llm_score(signals, topic, time_window)
+        sc, conf, extra = await self._llm_score(signals, topic, time_window)
         return LayerScoreCreate(
             layer=self.layer_name,
             topic=topic,
@@ -48,4 +59,5 @@ confidence: how much signal data supports this echo reading
             confidence=round(conf, 4),
             signal_count=len(signals),
             time_window=time_window,
+            extra_data=extra or None,
         )

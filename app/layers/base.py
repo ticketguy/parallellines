@@ -14,7 +14,8 @@ class LayerBase(ABC):
     Abstract base for all five perception layer processors.
 
     Each layer asks a specific perceptual question about the input signals
-    and returns a directional score (-1.0 to +1.0) with confidence.
+    and returns a directional score (-1.0 to +1.0) with confidence and
+    detailed observations extracted from the raw content.
     Scoring is done by the local IntuOne model — no arithmetic, no heuristics.
     When the model is not loaded, the layer returns an empty score (confidence=0).
     """
@@ -77,15 +78,17 @@ class LayerBase(ABC):
         signals: list[SignalRead],
         topic: str,
         time_window: str,
-    ) -> tuple[float, float]:
+    ) -> tuple[float, float, dict]:
         """
         Ask the local IntuOne model to score this layer.
-        Returns (score, confidence). Both 0.0 if model not loaded.
+        Returns (score, confidence, extra_data).
+        All zeroes/empty if model not loaded.
+        extra_data contains the model's detailed observations from the content.
         """
         from app.inference.pipeline import generate_briefing_local, is_model_loaded
 
         if not is_model_loaded():
-            return 0.0, 0.0
+            return 0.0, 0.0, {}
 
         prompt = self._layer_prompt.format(
             topic=topic,
@@ -94,14 +97,18 @@ class LayerBase(ABC):
         )
 
         try:
-            raw = generate_briefing_local(prompt, max_new_tokens=80, temperature=0.1)
-            match = re.search(r"\{[^}]+\}", raw)
+            raw = generate_briefing_local(prompt, max_new_tokens=200, temperature=0.1)
+            # Extract the JSON block — may be multi-line
+            match = re.search(r"\{.*\}", raw, re.DOTALL)
             if match:
                 data = json.loads(match.group())
                 score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
                 conf = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
-                return score, conf
+                extra: dict = {
+                    k: v for k, v in data.items() if k not in ("score", "confidence")
+                }
+                return score, conf, extra
         except Exception as exc:
             logger.debug("[%s] LLM scoring failed: %s", self.layer_name, exc)
 
-        return 0.0, 0.0
+        return 0.0, 0.0, {}

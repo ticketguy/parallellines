@@ -22,11 +22,21 @@ Topic: {topic} | Window: {time_window}
 Signals:
 {signals}
 
-Question: What does available evidence collectively price as the probability of this outcome? \
-Consider prediction market prices, trading volume, and liquidity depth.
+Read every signal carefully. What does the available evidence collectively price as the \
+probability of this outcome? Consider prediction market prices, trading volume, liquidity depth, \
+and what those numbers reveal about crowd belief.
+
+Extract the specific data points that matter most — exact prices, volumes, market questions. \
+Note anything unusual: thin liquidity, extreme prices, conflicting markets, recent price movement.
 
 Output ONLY this JSON (no other text):
-{{"score": <-1.0 to +1.0>, "confidence": <0.0 to 1.0>}}
+{{
+  "score": <-1.0 to +1.0>,
+  "confidence": <0.0 to 1.0>,
+  "key_data": ["<specific fact from signals>", ...],
+  "reasoning": "<what the data collectively tells you about probability>",
+  "notable": "<anything unusual, conflicting, or worth flagging — or null>"
+}}
 
 score: -1.0=crowd prices outcome as very unlikely, +1.0=very likely, 0.0=uncertain/50-50
 confidence: how strongly the signals support this reading
@@ -40,7 +50,7 @@ confidence: how strongly the signals support this reading
     ) -> LayerScoreCreate:
         if not signals:
             return self._empty_score(topic, time_window)
-        sc, conf = await self._llm_score(signals, topic, time_window)
+        sc, conf, extra = await self._llm_score(signals, topic, time_window)
         return LayerScoreCreate(
             layer=self.layer_name,
             topic=topic,
@@ -48,4 +58,5 @@ confidence: how strongly the signals support this reading
             confidence=round(conf, 4),
             signal_count=len(signals),
             time_window=time_window,
+            extra_data=extra or None,
         )
