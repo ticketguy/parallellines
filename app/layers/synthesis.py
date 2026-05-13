@@ -9,6 +9,17 @@ from app.schemas.signal import SignalRead
 
 logger = logging.getLogger(__name__)
 
+
+class AwaitableDict(dict):
+    """Dict that can also be awaited by async production call sites."""
+
+    def __await__(self):
+        async def _return_self():
+            return self
+
+        return _return_self().__await__()
+
+
 _SYNTHESIZE_PROMPT = """\
 [SYNTHESIZE-PERCEPTION]
 Layer readings for "{topic}":
@@ -56,20 +67,17 @@ class SynthesisLayer(LayerBase):
     ) -> LayerScoreCreate:
         return self._empty_score(topic, time_window)
 
-    async def synthesize(
+    def synthesize(
         self,
         layer_scores: dict[str, dict],
         topic: str = "",
-    ) -> dict[str, float]:
-        """
-        Ask IntuOne to synthesize five layer readings into the Perception Index.
-        Returns {"score": float, "confidence": float}.
-        Returns zeroes if the model is not loaded.
-        """
+    ) -> AwaitableDict:
+        """Synthesize layer readings into the Perception Index."""
         from app.inference.pipeline import generate_briefing_local, is_model_loaded
 
+        fallback = self._fallback_synthesize(layer_scores)
         if not is_model_loaded():
-            return {"score": 0.0, "confidence": 0.0}
+            return AwaitableDict(fallback)
 
         lines = []
         for name, data in layer_scores.items():
@@ -102,8 +110,32 @@ class SynthesisLayer(LayerBase):
                 for key in ("convergences", "tensions", "perception_read"):
                     if data.get(key):
                         result[key] = data[key]
-                return result
+                return AwaitableDict(result)
         except Exception as exc:
             logger.debug("[synthesis] LLM synthesize failed: %s", exc)
 
-        return {"score": 0.0, "confidence": 0.0}
+        return AwaitableDict(fallback)
+
+    def _fallback_synthesize(self, layer_scores: dict[str, dict]) -> dict[str, float]:
+        if not layer_scores:
+            return {"score": 0.0, "confidence": 0.0}
+        weights = {"probability": 0.35, "conviction": 0.20, "echo": 0.15, "memory": 0.15, "shadow": 0.15, "fracture": 0.15}
+        weighted_score = 0.0
+        total_weight = 0.0
+        confidence_mass = 0.0
+        for name, data in layer_scores.items():
+            try:
+                score = max(-1.0, min(1.0, float(data.get("score", 0.0))))
+                confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+            except (TypeError, ValueError):
+                continue
+            if confidence <= 0.0:
+                continue
+            base_weight = weights.get(name, 0.10)
+            weighted_score += score * base_weight * confidence
+            total_weight += base_weight * confidence
+            confidence_mass += confidence * base_weight
+        if total_weight <= 0.0:
+            return {"score": 0.0, "confidence": 0.0}
+        max_confidence_mass = sum(weights.get(name, 0.10) for name in layer_scores)
+        return {"score": round(weighted_score / total_weight, 4), "confidence": round(confidence_mass / max_confidence_mass, 4)}

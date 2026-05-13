@@ -1,0 +1,22 @@
+parallel_lines_engine:
+  schema_version: "0.2.0"
+  identity:
+    name: "ParallelLines"
+    class: "world_perception_engine"
+    purpose: "Observe world signals and model how belief forms, moves, persists, and fractures."
+    primary_question: "How is belief behaving?"
+    excluded_primary_question: "What will happen?"
+  brain_model:
+    stance: "fixed_base_for_this_lineage"
+    candidate_model_id: "google/gemma-4-E4B-it"
+    role: "trained cognitive brain substrate"
+  verified_harboria_labs:
+    github_org: "https://github.com/Harboria-Labs"
+    repos:
+      littlefig: "https://github.com/Harboria-Labs/littlefig"
+      embers_diaries: "https://github.com/Harboria-Labs/embers-diaries"
+      portid: "https://github.com/Harboria-Labs/PortID"
+  trained_cores:
+    memory_fabric: {brain_section: "memory cortex", trained_into_weights: true}
+    submind: {brain_section: "parallel subconscious cognition", trained_into_weights: true}
+    intuone: {brain_section: "interpreter cortex", trained_into_weights: true}

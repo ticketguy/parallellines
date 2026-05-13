@@ -48,7 +48,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["app"]
+packages = ["app", "engine", "memory"]
 
 [tool.ruff]
 line-length = 100

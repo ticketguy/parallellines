@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","title":"ParallelLines Engine Packets","type":"object","required":["packet_type","packet_id","created_at","engine_version"],"properties":{"packet_type":{"type":"string"},"packet_id":{"type":"string"},"created_at":{"type":"string"},"engine_version":{"type":"string"},"trace_id":{"type":["string","null"]}}}
